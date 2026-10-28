@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from .devin_local import SourceIncomplete, read_evidence
-from .registry import RevisionConflict, add_resource, create_task, link_session, list_tasks, task_resources, task_sessions, update_task
+from .registry import RevisionConflict, add_resource, create_task, link_session, list_tasks, task_resources, task_sessions, update_task, set_link_active, update_resource
 from .store import open_store
 from .views import add_item, add_section, attach_evidence, edit_item, ensure_view, get_view, rename_section, reorder_sections
 
@@ -95,7 +95,7 @@ class Handler(BaseHTTPRequestHandler):
             db=open_store(self.server.store,self.server.source)
             if target.path=='/api/state':
                 allowed={str(w.absolute()) for w in self.server.workspaces}
-                sessions=[{'id':r[0],'title':r[1] or 'Untitled session','status':r[2], 'last_seen':r[4], 'task_count':r[5]} for r in db.execute('SELECT s.id,s.title,s.status,s.workspace,s.last_seen,(SELECT COUNT(*) FROM contributions c WHERE c.session_id=s.id) FROM sessions s ORDER BY s.last_seen DESC,s.id') if r[3] in allowed]
+                sessions=[{'id':r[0],'title':r[1] or 'Untitled session','status':r[2], 'last_seen':r[4], 'task_count':r[5]} for r in db.execute('SELECT s.id,s.title,s.status,s.workspace,s.last_seen,(SELECT COUNT(*) FROM contributions c LEFT JOIN contribution_state cs ON cs.contribution_id=c.id WHERE c.session_id=s.id AND COALESCE(cs.active,1)=1) FROM sessions s ORDER BY s.last_seen DESC,s.id') if r[3] in allowed]
                 return self.respond(200,{'tasks':list_tasks(db),'sessions':sessions,'refresh':self.server.refresh_state})
             if target.path=='/api/session':
                 sid=query.get('id',[''])[0]
@@ -119,16 +119,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond(200,{'content':content if isinstance(content,str) else '', 'role':value.get('role','unknown'), 'notice':'Raw source content may contain injected context.'})
             if target.path=='/api/task':
                 task_id=query.get('id',[''])[0]
-                links=[s for s in task_sessions(db,task_id) if self.allowed_session(db,s['session_id'])]
+                links=[s for s in task_sessions(db,task_id,include_archived=True) if self.allowed_session(db,s['session_id'])]
                 view=get_view(db,task_id)
                 if view:
                     for section in view['sections']:
                         for item in section['items']:
                             item['evidence']=[e for e in item['evidence'] if self.allowed_session(db,e['session_id'])]
-                return self.respond(200,{'view':view,'sessions':links,'resources':task_resources(db,task_id)})
+                return self.respond(200,{'view':view,'sessions':links,'resources':task_resources(db,task_id,include_archived=True)})
             if target.path=='/api/evidence-list':
                 task_id=query.get('task',[''])[0];sid=query.get('session',[''])[0]
-                if not self.allowed_session(db,sid) or not db.execute('SELECT 1 FROM contributions WHERE task_id=? AND session_id=?',(task_id,sid)).fetchone():
+                if not self.allowed_session(db,sid) or not db.execute('SELECT 1 FROM contributions c LEFT JOIN contribution_state cs ON cs.contribution_id=c.id WHERE c.task_id=? AND c.session_id=? AND COALESCE(cs.active,1)=1',(task_id,sid)).fetchone():
                     return self.respond(404,{'error':'not found'})
                 rows=db.execute('SELECT node_id,role,content_hash,present FROM source_nodes WHERE session_id=? ORDER BY node_id',(sid,)).fetchall()
                 return self.respond(200,{'nodes':[{'node_id':n,'role':role,'content_hash':h,'present':bool(p)} for n,role,h,p in rows]})
@@ -180,8 +180,14 @@ class Handler(BaseHTTPRequestHandler):
                 if not self.allowed_session(db,body['session_id']):
                     raise ValueError('session is outside the configured workspaces')
                 result={'id':link_session(db,body['task_id'],body['session_id'])}
+            elif target=='/api/link/state':
+                row=db.execute('SELECT session_id FROM contributions WHERE id=? AND task_id=?',(body['link_id'],body['task_id'])).fetchone()
+                if not row or not self.allowed_session(db,row[0]):raise ValueError('link unavailable')
+                result={'revision':set_link_active(db,body['task_id'],body['link_id'],body['revision'],body['active'])}
             elif target=='/api/resource/add':
                 result={'id':add_resource(db,body['task_id'],body['kind'],body['uri'])}
+            elif target=='/api/resource/edit':
+                result={'revision':update_resource(db,body['task_id'],body['resource_id'],body['revision'],kind=body.get('kind'),uri=body.get('uri'),active=body.get('active'))}
             elif target=='/api/view/ensure':
                 result={'id':ensure_view(db,body['task_id'])}
             elif target=='/api/section/add':

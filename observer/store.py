@@ -59,6 +59,20 @@ CREATE TABLE IF NOT EXISTS resources (
  id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), kind TEXT NOT NULL,
  uri TEXT NOT NULL, external_status TEXT NOT NULL, verified_at INTEGER, created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS contribution_state (
+ contribution_id TEXT PRIMARY KEY REFERENCES contributions(id), active INTEGER NOT NULL, revision INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS contribution_history (
+ id INTEGER PRIMARY KEY, contribution_id TEXT NOT NULL REFERENCES contributions(id),
+ active INTEGER NOT NULL, revision INTEGER NOT NULL, saved_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS resource_state (
+ resource_id TEXT PRIMARY KEY REFERENCES resources(id), active INTEGER NOT NULL, revision INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS resource_history (
+ id INTEGER PRIMARY KEY, resource_id TEXT NOT NULL REFERENCES resources(id), kind TEXT NOT NULL,
+ uri TEXT NOT NULL, active INTEGER NOT NULL, revision INTEGER NOT NULL, saved_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS task_views (
  id TEXT PRIMARY KEY, task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id), revision INTEGER NOT NULL
 );

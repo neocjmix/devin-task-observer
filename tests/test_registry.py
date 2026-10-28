@@ -2,7 +2,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
-from observer.registry import add_resource, task_resources, create_task, update_task, link_session, list_tasks, task_sessions, session_tasks, RevisionConflict
+from observer.registry import add_resource, task_resources, create_task, update_task, link_session, list_tasks, task_sessions, session_tasks, RevisionConflict, set_link_active, update_resource
 from observer.store import open_store
 
 
@@ -61,6 +61,40 @@ class RegistryTests(unittest.TestCase):
         self.assertTrue(all(x['external_status']=='unknown' and x['verified_at'] is None for x in resources))
         for uri in ('javascript:alert(1)','https://user:secret@example.com/','//example.com'):
             with self.assertRaises(ValueError):add_resource(self.db,task,'other',uri)
+
+    def test_unlink_and_restore_keep_other_links_and_history(self):
+        task=create_task(self.db,'Task');other=create_task(self.db,'Other')
+        link=link_session(self.db,task,'s1',role='research');link_session(self.db,other,'s1')
+        self.assertEqual(set_link_active(self.db,task,link,1,False),2)
+        self.assertEqual(task_sessions(self.db,task),[])
+        self.assertEqual([x['task_id'] for x in session_tasks(self.db,'s1')],[other])
+        self.assertEqual(task_sessions(self.db,task,True)[0]['active'],0)
+        with self.assertRaises(RevisionConflict):set_link_active(self.db,task,link,1,True)
+        with self.assertRaises(ValueError):link_session(self.db,task,'s1',role='research')
+        self.assertEqual(set_link_active(self.db,task,link,2,True),3)
+        self.assertEqual(task_sessions(self.db,task)[0]['role'],'research')
+        self.assertEqual(self.db.execute('SELECT active,revision FROM contribution_history WHERE contribution_id=? ORDER BY id',(link,)).fetchall(),[(1,1),(0,2),(1,3)])
+
+    def test_resource_edit_archive_restore_conflict_and_history(self):
+        task=create_task(self.db,'Task');rid=add_resource(self.db,task,'pr','https://example.com/old')
+        self.assertEqual(update_resource(self.db,task,rid,1,kind='ticket',uri='https://example.com/new'),2)
+        with self.assertRaises(RevisionConflict):update_resource(self.db,task,rid,1,uri='https://example.com/stale')
+        with self.assertRaises(ValueError):update_resource(self.db,task,rid,2,uri='javascript:alert(1)')
+        self.assertEqual(update_resource(self.db,task,rid,2,active=False),3)
+        self.assertEqual(task_resources(self.db,task),[])
+        self.assertEqual(update_resource(self.db,task,rid,3,active=True),4)
+        self.assertEqual(task_resources(self.db,task)[0]['uri'],'https://example.com/new')
+        self.assertEqual(self.db.execute('SELECT uri,active,revision FROM resource_history WHERE resource_id=? ORDER BY id',(rid,)).fetchall(),[('https://example.com/old',1,1),('https://example.com/new',1,2),('https://example.com/new',0,3),('https://example.com/new',1,4)])
+
+    def test_preexisting_records_receive_history_when_changed(self):
+        task=create_task(self.db,'Legacy')
+        with self.db:
+            self.db.execute('INSERT INTO contributions VALUES (?,?,?,?,?,?,?,?)',('old-link',task,'s1','','','human',None,1))
+            self.db.execute('INSERT INTO resources VALUES (?,?,?,?,?,?,?)',('old-resource',task,'pr','https://example.com/old','unknown',None,1))
+        self.assertEqual(set_link_active(self.db,task,'old-link',1,False),2)
+        self.assertEqual(update_resource(self.db,task,'old-resource',1,uri='https://example.com/new'),2)
+        self.assertEqual(self.db.execute('SELECT active,revision FROM contribution_history WHERE contribution_id=? ORDER BY id',('old-link',)).fetchall(),[(1,1),(0,2)])
+        self.assertEqual(self.db.execute('SELECT uri,revision FROM resource_history WHERE resource_id=? ORDER BY id',('old-resource',)).fetchall(),[('https://example.com/old',1),('https://example.com/new',2)])
 
 
 if __name__ == '__main__': unittest.main()

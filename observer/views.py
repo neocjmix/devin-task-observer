@@ -100,7 +100,7 @@ def attach_evidence(db, view_id, item_id, expected, session_id, node_id, content
         row=db.execute('SELECT v.task_id FROM view_items i JOIN view_sections s ON s.id=i.section_id JOIN task_views v ON v.id=s.view_id WHERE i.id=? AND v.id=?',(item_id,view_id)).fetchone()
         if not row:
             raise KeyError('item not found')
-        if not db.execute('SELECT 1 FROM contributions WHERE task_id=? AND session_id=?',(row[0],session_id)).fetchone():
+        if not db.execute('SELECT 1 FROM contributions c LEFT JOIN contribution_state cs ON cs.contribution_id=c.id WHERE c.task_id=? AND c.session_id=? AND COALESCE(cs.active,1)=1',(row[0],session_id)).fetchone():
             raise ValueError('session is not linked to task')
         if not db.execute('SELECT 1 FROM event_evidence WHERE session_id=? AND node_id=? AND content_hash=?',(session_id,node_id,content_hash)).fetchone():
             raise ValueError('evidence not found')

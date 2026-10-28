@@ -62,6 +62,21 @@ class ServerTests(unittest.TestCase):
         status,second=self.request('GET','/api/session?id=s1&offset=50');self.assertEqual(status,200)
         self.assertEqual(len(second['events']),11);self.assertIsNone(second['next_offset'])
 
+    def test_archive_restore_link_and_resource_with_conflicts(self):
+        _,created=self.request('POST','/api/task/create',{'title':'synthetic task'});task=created['id']
+        _,link=self.request('POST','/api/link',{'task_id':task,'session_id':'s1'})
+        status,resource=self.request('POST','/api/resource/add',{'task_id':task,'kind':'pr','uri':'https://example.com/old'});self.assertEqual(status,200)
+        rid=resource['id']
+        status,_=self.request('POST','/api/resource/edit',{'task_id':task,'resource_id':rid,'revision':1,'uri':'https://example.com/new'});self.assertEqual(status,200)
+        status,_=self.request('POST','/api/resource/edit',{'task_id':task,'resource_id':rid,'revision':1,'active':False});self.assertEqual(status,409)
+        status,_=self.request('POST','/api/link/state',{'task_id':task,'link_id':link['id'],'revision':1,'active':False});self.assertEqual(status,200)
+        _,detail=self.request('GET','/api/task?id='+task);self.assertEqual(detail['sessions'][0]['active'],0);self.assertEqual(detail['resources'][0]['uri'],'https://example.com/new')
+        _,state=self.request('GET','/api/state');self.assertEqual(state['sessions'][0]['task_count'],0)
+        status,_=self.request('GET','/api/evidence-list?task='+task+'&session=s1');self.assertEqual(status,404)
+        status,_=self.request('POST','/api/link/state',{'task_id':task,'link_id':link['id'],'revision':2,'active':True});self.assertEqual(status,200)
+        status,_=self.request('POST','/api/resource/edit',{'task_id':task,'resource_id':rid,'revision':2,'active':False});self.assertEqual(status,200)
+        status,_=self.request('POST','/api/resource/edit',{'task_id':task,'resource_id':rid,'revision':3,'active':True});self.assertEqual(status,200)
+
     def test_task_session_view_and_hash_checked_evidence_flow(self):
         status,session=self.request('GET','/api/session?id=s1');self.assertEqual(status,200);self.assertEqual(len(session['events']),1);self.assertEqual(session['events'][0]['kind'],'user')
         status,original=self.request('GET',f"/api/session-evidence?session=s1&node=0&hash={session['events'][0]['content_hash']}");self.assertEqual(status,200);self.assertEqual(original['content'],'synthetic evidence')
@@ -74,6 +89,10 @@ class ServerTests(unittest.TestCase):
         status,evidence=self.request('GET',f'/api/evidence?task={task}&session=s1&node=0&hash={digest}');self.assertEqual(status,200);self.assertEqual(evidence['content'],'synthetic evidence')
         status,_=self.request('POST','/api/item/edit',{'view_id':view['id'],'item_id':item['id'],'revision':item['revision'],'content':'stale overwrite'});self.assertEqual(status,409)
         status,detail=self.request('GET','/api/task?id='+task);self.assertEqual(status,200);saved=detail['view']['sections'][0]['items'][0];self.assertEqual(saved['content'],'human note');self.assertTrue(saved['pinned']);self.assertEqual(len(saved['evidence']),1)
+        link=detail['sessions'][0]
+        status,_=self.request('POST','/api/link/state',{'task_id':task,'link_id':link['link_id'],'revision':link['revision'],'active':False});self.assertEqual(status,200)
+        status,retained=self.request('GET',f'/api/evidence?task={task}&session=s1&node=0&hash={digest}');self.assertEqual(status,200);self.assertEqual(retained['content'],'synthetic evidence')
+        status,_=self.request('POST','/api/evidence/attach',{'view_id':view['id'],'item_id':item['id'],'revision':attached['revision'],'session_id':'s1','node_id':0,'content_hash':digest});self.assertEqual(status,400)
         db=sqlite3.connect(self.source);db.execute("UPDATE message_nodes SET chat_message='{}'");db.commit();db.close()
         status,_=self.request('GET',f'/api/evidence?task={task}&session=s1&node=0&hash={digest}');self.assertEqual(status,400)
 

@@ -54,9 +54,15 @@ def link_session(db, task_id, session_id, *, role='', scope='', linked_by='human
         if existing:
             if existing[1:] != (role,scope,linked_by,confidence):
                 raise ValueError('link already exists with different metadata')
+            state = db.execute('SELECT active FROM contribution_state WHERE contribution_id=?',(existing[0],)).fetchone()
+            if state and not state[0]:
+                raise ValueError('link is archived; restore it explicitly')
             return existing[0]
         link_id = str(uuid.uuid4())
-        db.execute('INSERT INTO contributions VALUES (?,?,?,?,?,?,?,?)', (link_id,task_id,session_id,role,scope,linked_by,confidence,time.time_ns()))
+        now=time.time_ns()
+        db.execute('INSERT INTO contributions VALUES (?,?,?,?,?,?,?,?)', (link_id,task_id,session_id,role,scope,linked_by,confidence,now))
+        db.execute('INSERT INTO contribution_state VALUES (?,1,1)',(link_id,))
+        db.execute('INSERT INTO contribution_history(contribution_id,active,revision,saved_at) VALUES (?,1,1,?)',(link_id,now))
     return link_id
 
 
@@ -64,15 +70,34 @@ def list_tasks(db):
     return [dict(zip(('id','title','description','lifecycle','created_at','updated_at','revision'), row)) for row in db.execute('SELECT id,title,description,lifecycle,created_at,updated_at,revision FROM tasks ORDER BY created_at,id')]
 
 
-def task_sessions(db, task_id):
-    return [dict(zip(('session_id','title','status','role','scope','linked_by','confidence'),row)) for row in db.execute('SELECT s.id,s.title,s.status,c.role,c.scope,c.linked_by,c.confidence FROM contributions c JOIN sessions s ON s.id=c.session_id WHERE c.task_id=? ORDER BY c.linked_at,c.id',(task_id,))]
+def task_sessions(db, task_id, include_archived=False):
+    rows=db.execute('SELECT s.id,s.title,s.status,c.role,c.scope,c.linked_by,c.confidence,c.id,COALESCE(cs.active,1),COALESCE(cs.revision,1) FROM contributions c JOIN sessions s ON s.id=c.session_id LEFT JOIN contribution_state cs ON cs.contribution_id=c.id WHERE c.task_id=? AND (? OR COALESCE(cs.active,1)=1) ORDER BY c.linked_at,c.id',(task_id,int(include_archived)))
+    return [dict(zip(('session_id','title','status','role','scope','linked_by','confidence','link_id','active','revision'),row)) for row in rows]
 
 
 def session_tasks(db, session_id):
-    return [dict(zip(('task_id','title','lifecycle','role','scope'),row)) for row in db.execute('SELECT t.id,t.title,t.lifecycle,c.role,c.scope FROM contributions c JOIN tasks t ON t.id=c.task_id WHERE c.session_id=? ORDER BY c.linked_at,c.id',(session_id,))]
+    return [dict(zip(('task_id','title','lifecycle','role','scope'),row)) for row in db.execute('SELECT t.id,t.title,t.lifecycle,c.role,c.scope FROM contributions c JOIN tasks t ON t.id=c.task_id LEFT JOIN contribution_state cs ON cs.contribution_id=c.id WHERE c.session_id=? AND COALESCE(cs.active,1)=1 ORDER BY c.linked_at,c.id',(session_id,))]
 
 
-def add_resource(db, task_id, kind, uri):
+def set_link_active(db, task_id, link_id, expected_revision, active):
+    if not isinstance(expected_revision,int) or isinstance(expected_revision,bool) or not isinstance(active,bool):
+        raise ValueError('revision and active state required')
+    with db:
+        if not db.execute('SELECT 1 FROM contributions WHERE id=? AND task_id=?',(link_id,task_id)).fetchone():
+            raise KeyError('link not found')
+        db.execute('INSERT OR IGNORE INTO contribution_state VALUES (?,1,1)',(link_id,))
+        old=db.execute('SELECT active,revision FROM contribution_state WHERE contribution_id=?',(link_id,)).fetchone()
+        if old[1]!=expected_revision: raise RevisionConflict('link revision changed')
+        if old[0]==int(active): return old[1]
+        cur=db.execute('UPDATE contribution_state SET active=?,revision=revision+1 WHERE contribution_id=? AND revision=?',(int(active),link_id,expected_revision))
+        if cur.rowcount!=1: raise RevisionConflict('link revision changed')
+        if not db.execute('SELECT 1 FROM contribution_history WHERE contribution_id=?',(link_id,)).fetchone():
+            db.execute('INSERT INTO contribution_history(contribution_id,active,revision,saved_at) VALUES (?,?,?,?)',(link_id,*old,time.time_ns()))
+        db.execute('INSERT INTO contribution_history(contribution_id,active,revision,saved_at) VALUES (?,?,?,?)',(link_id,int(active),expected_revision+1,time.time_ns()))
+        return expected_revision+1
+
+
+def _validate_resource(kind, uri):
     if kind not in ('ticket','pr','repo','document','commit','test','other'):
         raise ValueError('invalid resource kind')
     if not isinstance(uri,str) or not uri.strip() or len(uri)>2048:
@@ -81,11 +106,42 @@ def add_resource(db, task_id, kind, uri):
     parsed=urlsplit(uri)
     if not ((parsed.scheme in ('http','https') and parsed.netloc and parsed.username is None and parsed.password is None) or (uri.startswith('/') and not parsed.scheme and not uri.startswith('//'))):
         raise ValueError('resource must be an HTTP URL or absolute local path')
+    return uri
+
+
+def add_resource(db, task_id, kind, uri):
+    uri=_validate_resource(kind,uri)
     rid=str(uuid.uuid4())
     with db:
-        db.execute('INSERT INTO resources VALUES (?,?,?,?,?,?,?)',(rid,task_id,kind,uri,'unknown',None,time.time_ns()))
+        now=time.time_ns()
+        db.execute('INSERT INTO resources VALUES (?,?,?,?,?,?,?)',(rid,task_id,kind,uri,'unknown',None,now))
+        db.execute('INSERT INTO resource_state VALUES (?,1,1)',(rid,))
+        db.execute('INSERT INTO resource_history(resource_id,kind,uri,active,revision,saved_at) VALUES (?,?,?,1,1,?)',(rid,kind,uri,now))
     return rid
 
 
-def task_resources(db,task_id):
-    return [dict(zip(('id','kind','uri','external_status','verified_at'),row)) for row in db.execute('SELECT id,kind,uri,external_status,verified_at FROM resources WHERE task_id=? ORDER BY created_at,id',(task_id,))]
+def task_resources(db,task_id,include_archived=False):
+    rows=db.execute('SELECT r.id,r.kind,r.uri,r.external_status,r.verified_at,COALESCE(rs.active,1),COALESCE(rs.revision,1) FROM resources r LEFT JOIN resource_state rs ON rs.resource_id=r.id WHERE r.task_id=? AND (? OR COALESCE(rs.active,1)=1) ORDER BY r.created_at,r.id',(task_id,int(include_archived)))
+    return [dict(zip(('id','kind','uri','external_status','verified_at','active','revision'),row)) for row in rows]
+
+
+def update_resource(db, task_id, resource_id, expected_revision, *, kind=None, uri=None, active=None):
+    if not isinstance(expected_revision,int) or isinstance(expected_revision,bool) or (active is not None and not isinstance(active,bool)):
+        raise ValueError('revision and valid active state required')
+    with db:
+        row=db.execute('SELECT kind,uri FROM resources WHERE id=? AND task_id=?',(resource_id,task_id)).fetchone()
+        if not row: raise KeyError('resource not found')
+        db.execute('INSERT OR IGNORE INTO resource_state VALUES (?,1,1)',(resource_id,))
+        old=db.execute('SELECT active,revision FROM resource_state WHERE resource_id=?',(resource_id,)).fetchone()
+        if old[1]!=expected_revision: raise RevisionConflict('resource revision changed')
+        new_kind=row[0] if kind is None else kind
+        new_uri=_validate_resource(new_kind,row[1] if uri is None else uri)
+        new_active=old[0] if active is None else int(active)
+        if (new_kind,new_uri,new_active)==(*row,old[0]): return old[1]
+        cur=db.execute('UPDATE resource_state SET active=?,revision=revision+1 WHERE resource_id=? AND revision=?',(new_active,resource_id,expected_revision))
+        if cur.rowcount!=1: raise RevisionConflict('resource revision changed')
+        if not db.execute('SELECT 1 FROM resource_history WHERE resource_id=?',(resource_id,)).fetchone():
+            db.execute('INSERT INTO resource_history(resource_id,kind,uri,active,revision,saved_at) VALUES (?,?,?,?,?,?)',(resource_id,*row,*old,time.time_ns()))
+        db.execute("UPDATE resources SET kind=?,uri=?,external_status='unknown',verified_at=NULL WHERE id=?",(new_kind,new_uri,resource_id))
+        db.execute('INSERT INTO resource_history(resource_id,kind,uri,active,revision,saved_at) VALUES (?,?,?,?,?,?)',(resource_id,new_kind,new_uri,new_active,expected_revision+1,time.time_ns()))
+        return expected_revision+1

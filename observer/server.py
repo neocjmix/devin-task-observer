@@ -20,6 +20,16 @@ from .semantic import create_proposal, list_proposals, apply_proposal, reject_pr
 from .progress import pending_changes, acknowledge_changes, task_attention
 
 
+def evidence_response(value):
+    content=value.get('content');calls=value.get('tool_calls')
+    metadata=value.get('metadata')
+    extensions=metadata.get('extensions') if isinstance(metadata,dict) else None
+    tool_metadata=extensions.get('chisel/tool_call_content') if isinstance(extensions,dict) else None
+    return {'content':content if isinstance(content,str) else '', 'tool_calls':calls if isinstance(calls,list) else [],
+            'tool_call_metadata':tool_metadata, 'plan_preview':observed_plan_preview(value),
+            'role':value.get('role','unknown'), 'notice':'Raw source content may contain injected context.'}
+
+
 class LocalServer(ThreadingHTTPServer):
     daemon_threads = True
     def __init__(self, address, source, store, workspaces, enable_local_analysis=False):
@@ -163,9 +173,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.respond(404,{'error':'not found'})
                 workspace=db.execute('SELECT workspace FROM sessions WHERE id=?',(sid,)).fetchone()[0]
                 value=read_evidence(self.server.source,Path(workspace),sid,node,digest)
-                content=value.get('content')
-                calls=value.get('tool_calls')
-                return self.respond(200,{'content':content if isinstance(content,str) else '', 'tool_calls':calls if isinstance(calls,list) else [], 'plan_preview':observed_plan_preview(value), 'role':value.get('role','unknown'), 'notice':'Raw source content may contain injected context.'})
+                return self.respond(200,evidence_response(value))
             if target.path=='/api/task':
                 task_id=query.get('id',[''])[0]
                 links=[s for s in task_sessions(db,task_id,include_archived=True) if self.allowed_session(db,s['session_id'])]
@@ -194,9 +202,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not db.execute('SELECT 1 FROM event_evidence WHERE session_id=? AND node_id=? AND content_hash=?',(sid,node,digest)).fetchone():
                     return self.respond(404,{'error':'not found'})
                 value=read_evidence(self.server.source,Path(row[0]),sid,node,digest)
-                content=value.get('content')
-                calls=value.get('tool_calls')
-                return self.respond(200,{'content':content if isinstance(content,str) else '', 'tool_calls':calls if isinstance(calls,list) else [], 'plan_preview':observed_plan_preview(value), 'role':value.get('role','unknown'), 'notice':'Raw source content may contain injected context.'})
+                return self.respond(200,evidence_response(value))
             return self.respond(404,{'error':'not found'})
         except (ValueError,KeyError,sqlite3.Error,SourceIncomplete,OSError):
             return self.respond(400,{'error':'unable to read data'})

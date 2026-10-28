@@ -95,12 +95,13 @@ class ServerTests(unittest.TestCase):
 
     def test_tool_call_arguments_are_read_on_demand_without_body_storage(self):
         source=sqlite3.connect(self.source)
-        raw=json.dumps({'message_id':'tool-message','role':'assistant','content':'','tool_calls':[{'id':'call1','name':'read','arguments':'synthetic-only'}]})
+        raw=json.dumps({'message_id':'tool-message','role':'assistant','content':'','tool_calls':[{'id':'call1','name':'read','arguments':'synthetic-only'}], 'metadata':{'extensions':{'chisel/tool_call_content':{'call1':{'title':'synthetic metadata','status':'pending'}}}}})
         source.execute('INSERT INTO message_nodes VALUES (?,?,?,?)',('s1',1,0,raw))
         source.execute('UPDATE sessions SET main_chain_id=1');source.commit();source.close();self.assertTrue(self.server.refresh()['ok'])
         digest=hashlib.sha256(raw.encode()).hexdigest()
         status,result=self.request('GET',f'/api/session-evidence?session=s1&node=1&hash={digest}')
         self.assertEqual(status,200);self.assertEqual(result['tool_calls'][0]['arguments'],'synthetic-only')
+        self.assertEqual(result['tool_call_metadata']['call1']['title'],'synthetic metadata')
         db=open_store(self.store,self.source)
         self.assertNotIn('synthetic-only',str(db.execute('SELECT * FROM source_nodes').fetchall()))
         db.close()

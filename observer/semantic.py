@@ -53,7 +53,12 @@ def local_generate(text):
         'options':{'temperature':0,'num_ctx':CONTEXT_TOKENS,'num_predict':OUTPUT_TOKENS},'keep_alive':0})
 
 
-def create_proposal(db, source: Path, task_id, session_id, node_id, content_hash, generate=None):
+def _cached_run(db,task_id,session_id,content_hash,message_id):
+    return db.execute('''SELECT r.id,r.status,p.id,r.node_id FROM semantic_runs r LEFT JOIN semantic_proposals p ON p.run_id=r.id WHERE r.task_id=? AND r.session_id=? AND r.content_hash=? AND r.model=? AND r.prompt_version=? AND EXISTS (SELECT 1 FROM observations o WHERE o.session_id=r.session_id AND o.node_id=r.node_id AND o.content_hash=r.content_hash AND o.message_id=?)''',(task_id,session_id,content_hash,MODEL,PROMPT_VERSION,message_id)).fetchone()
+
+
+def create_proposal(db, source: Path, task_id, session_id, node_id, content_hash, generate=None, *, retry_failed=False):
+    if not isinstance(retry_failed,bool):raise ValueError('invalid retry request')
     row=db.execute('''SELECT s.workspace,s.status,n.content_hash,n.present,k.kinds,n.message_id
         FROM sessions s JOIN source_nodes n ON n.session_id=s.id
         LEFT JOIN node_kinds k ON k.session_id=n.session_id AND k.node_id=n.node_id AND k.content_hash=n.content_hash
@@ -64,21 +69,29 @@ def create_proposal(db, source: Path, task_id, session_id, node_id, content_hash
         raise ValueError('current linked evidence required')
     kinds=json.loads(row[4]) if row[4] else []
     if not any(x in kinds for x in ('user','assistant')):raise ValueError('unsupported evidence type')
-    cached=db.execute('''SELECT r.id,r.status,p.id FROM semantic_runs r LEFT JOIN semantic_proposals p ON p.run_id=r.id WHERE r.task_id=? AND r.session_id=? AND r.content_hash=? AND r.model=? AND r.prompt_version=? AND EXISTS (SELECT 1 FROM observations o WHERE o.session_id=r.session_id AND o.node_id=r.node_id AND o.content_hash=r.content_hash AND o.message_id=?)''',(task_id,session_id,content_hash,MODEL,PROMPT_VERSION,row[5])).fetchone()
-    if cached: return {'run_id':cached[0],'status':cached[1],'proposal_id':cached[2],'cached':True}
+    cached=_cached_run(db,task_id,session_id,content_hash,row[5])
+    if retry_failed and (not cached or cached[1]!='failed' or cached[3]!=node_id):raise ValueError('no failed analysis for this node')
+    if cached and not retry_failed:return {'run_id':cached[0],'status':cached[1],'proposal_id':cached[2],'cached':True}
     evidence=read_evidence(source,Path(row[0]),session_id,node_id,content_hash)
     content=evidence.get('content')
     if not isinstance(content,str) or not content.strip() or len(content.encode('utf-8'))>MAX_SOURCE_BYTES:
         raise ValueError('evidence must be nonempty text within the size limit')
-    run_id=str(uuid.uuid4());day=datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    run_id=str(uuid.uuid4());retry_id=None;day=datetime.datetime.now(datetime.timezone.utc).date().isoformat()
     db.execute('BEGIN IMMEDIATE')
     try:
-        cached=db.execute('''SELECT r.id,r.status,p.id FROM semantic_runs r LEFT JOIN semantic_proposals p ON p.run_id=r.id WHERE r.task_id=? AND r.session_id=? AND r.content_hash=? AND r.model=? AND r.prompt_version=? AND EXISTS (SELECT 1 FROM observations o WHERE o.session_id=r.session_id AND o.node_id=r.node_id AND o.content_hash=r.content_hash AND o.message_id=?)''',(task_id,session_id,content_hash,MODEL,PROMPT_VERSION,row[5])).fetchone()
-        if cached:
+        cached=_cached_run(db,task_id,session_id,content_hash,row[5])
+        if cached and not retry_failed:
             db.rollback();return {'run_id':cached[0],'status':cached[1],'proposal_id':cached[2],'cached':True}
+        if retry_failed and (not cached or cached[1]!='failed' or cached[3]!=node_id):raise ValueError('no failed analysis for this node')
         spent=db.execute('SELECT COALESCE(SUM(reserved_tokens),0) FROM semantic_runs WHERE budget_day=?',(day,)).fetchone()[0]
+        spent+=db.execute('SELECT COALESCE(SUM(reserved_tokens),0) FROM semantic_retry_attempts WHERE budget_day=?',(day,)).fetchone()[0]
         if spent+RESERVATION>DAILY_BUDGET:raise ValueError('daily local analysis budget exhausted')
-        db.execute('INSERT INTO semantic_runs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',(run_id,task_id,session_id,node_id,content_hash,MODEL,PROMPT_VERSION,day,RESERVATION,None,None,'pending',time.time_ns()))
+        if retry_failed:
+            run_id=cached[0];retry_id=str(uuid.uuid4())
+            db.execute('INSERT INTO semantic_retry_attempts VALUES (?,?,?,?,?,?,?,?)',(retry_id,run_id,day,RESERVATION,None,None,'pending',time.time_ns()))
+            db.execute("UPDATE semantic_runs SET status='pending' WHERE id=?",(run_id,))
+        else:
+            db.execute('INSERT INTO semantic_runs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',(run_id,task_id,session_id,node_id,content_hash,MODEL,PROMPT_VERSION,day,RESERVATION,None,None,'pending',time.time_ns()))
         db.commit()
     except Exception:
         db.rollback();raise
@@ -95,10 +108,13 @@ def create_proposal(db, source: Path, task_id, session_id, node_id, content_hash
         suggestion=parsed['suggestion'].strip();proposal_id=str(uuid.uuid4()) if suggestion else None
         with db:
             db.execute('UPDATE semantic_runs SET status=?,prompt_tokens=?,output_tokens=? WHERE id=?',('proposed' if suggestion else 'empty',prompt_tokens,output_tokens,run_id))
+            if retry_id:db.execute('UPDATE semantic_retry_attempts SET status=?,prompt_tokens=?,output_tokens=? WHERE id=?',('proposed' if suggestion else 'empty',prompt_tokens,output_tokens,retry_id))
             if suggestion:db.execute('INSERT INTO semantic_proposals VALUES (?,?,?,?,?,NULL)',(proposal_id,run_id,suggestion,'pending',time.time_ns()))
         return {'run_id':run_id,'status':'proposed' if suggestion else 'empty','proposal_id':proposal_id,'cached':False}
     except Exception:
-        with db:db.execute("UPDATE semantic_runs SET status='failed' WHERE id=?",(run_id,))
+        with db:
+            db.execute("UPDATE semantic_runs SET status='failed' WHERE id=?",(run_id,))
+            if retry_id:db.execute("UPDATE semantic_retry_attempts SET status='failed' WHERE id=?",(retry_id,))
         raise ValueError('local analysis failed; reserved budget is retained') from None
 
 

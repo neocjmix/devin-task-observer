@@ -127,6 +127,11 @@ CREATE TABLE IF NOT EXISTS semantic_proposals (
  id TEXT PRIMARY KEY, run_id TEXT NOT NULL UNIQUE REFERENCES semantic_runs(id),
  content TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL, accepted_item_id TEXT
 );
+CREATE TABLE IF NOT EXISTS semantic_retry_attempts (
+ id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES semantic_runs(id), budget_day TEXT NOT NULL,
+ reserved_tokens INTEGER NOT NULL, prompt_tokens INTEGER, output_tokens INTEGER,
+ status TEXT NOT NULL, created_at INTEGER NOT NULL
+);
 '''
 
 

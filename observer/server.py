@@ -103,6 +103,7 @@ class Handler(BaseHTTPRequestHandler):
                 sessions=[{'id':r[0],'title':r[1] or 'Untitled session','status':r[2], 'last_seen':r[4], 'task_count':r[5]} for r in db.execute('SELECT s.id,s.title,s.status,s.workspace,s.last_seen,(SELECT COUNT(*) FROM contributions c LEFT JOIN contribution_state cs ON cs.contribution_id=c.id WHERE c.session_id=s.id AND COALESCE(cs.active,1)=1) FROM sessions s ORDER BY s.last_seen DESC,s.id') if r[3] in allowed]
                 day=datetime.datetime.now(datetime.timezone.utc).date().isoformat()
                 reserved=db.execute('SELECT COALESCE(SUM(reserved_tokens),0) FROM semantic_runs WHERE budget_day=?',(day,)).fetchone()[0]
+                reserved+=db.execute('SELECT COALESCE(SUM(reserved_tokens),0) FROM semantic_retry_attempts WHERE budget_day=?',(day,)).fetchone()[0]
                 tasks=list_tasks(db)
                 for task in tasks:task['attention']=task_attention(db,task['id'],allowed)
                 return self.respond(200,{'tasks':tasks,'sessions':sessions,'refresh':self.server.refresh_state,'local_analysis':self.server.enable_local_analysis,'analysis_budget':{'day_utc':day,'reserved':reserved,'limit':DAILY_BUDGET}})
@@ -246,7 +247,7 @@ class Handler(BaseHTTPRequestHandler):
                 result={'revision':update_resource(db,body['task_id'],body['resource_id'],body['revision'],kind=body.get('kind'),uri=body.get('uri'),active=body.get('active'))}
             elif target=='/api/proposal/create':
                 if not self.server.enable_local_analysis or not self.allowed_session(db,body['session_id']):raise ValueError('local analysis disabled or out of scope')
-                result=create_proposal(db,self.server.source,body['task_id'],body['session_id'],body['node_id'],body['content_hash'])
+                result=create_proposal(db,self.server.source,body['task_id'],body['session_id'],body['node_id'],body['content_hash'],retry_failed=body.get('retry_failed',False))
             elif target=='/api/proposal/apply':
                 row=db.execute('SELECT r.session_id,r.node_id,r.content_hash,s.workspace FROM semantic_proposals p JOIN semantic_runs r ON r.id=p.run_id JOIN sessions s ON s.id=r.session_id WHERE p.id=? AND r.task_id=?',(body['proposal_id'],body['task_id'])).fetchone()
                 if not row or not self.allowed_session(db,row[0]):raise ValueError('proposal out of scope')
@@ -285,6 +286,7 @@ class Handler(BaseHTTPRequestHandler):
                 'unsupported evidence type':'관측된 사용자 또는 답변 항목만 분석할 수 있습니다.',
                 'local analysis failed; reserved budget is retained':'로컬 모델 분석에 실패했습니다. 예약된 예산은 유지됩니다.',
                 'current linked evidence required':'현재 연결된 최신 근거를 선택하세요.',
+                'no failed analysis for this node':'선택한 노드에는 재시도할 실패 기록이 없습니다.',
             }
             return self.respond(400,{'error':safe.get(str(error),'invalid or unavailable data')})
         except (KeyError,TypeError,sqlite3.Error,OSError,SourceIncomplete):

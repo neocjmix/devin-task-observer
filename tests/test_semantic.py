@@ -1,6 +1,7 @@
 import json
 import sqlite3
 import tempfile
+import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -62,6 +63,40 @@ class SemanticTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'budget exhausted'):self.propose(2)
         self.assertEqual(self.db.execute('SELECT status FROM semantic_runs ORDER BY created_at').fetchall(),[('failed',),('proposed',)])
         self.assertEqual(self.db.execute('SELECT SUM(reserved_tokens) FROM semantic_runs').fetchone()[0],4608)
+
+    def test_explicit_retry_reserves_budget_and_success_is_cached(self):
+        def broken(_):raise OSError('unavailable')
+        with self.assertRaises(ValueError):self.propose(0,broken)
+        cached=self.propose(0,broken);self.assertTrue(cached['cached']);self.assertEqual(cached['status'],'failed')
+        retried=create_proposal(self.db,self.source,self.task,'s1',0,self.digest(0),fake,retry_failed=True)
+        self.assertEqual(retried['status'],'proposed');self.assertFalse(retried['cached'])
+        self.assertEqual(self.db.execute('SELECT status,prompt_tokens,output_tokens FROM semantic_retry_attempts').fetchone(),('proposed',110,20))
+        self.assertEqual(self.db.execute('SELECT SUM(reserved_tokens) FROM semantic_retry_attempts').fetchone()[0],2304)
+        with self.assertRaisesRegex(ValueError,'budget exhausted'):self.propose(1)
+        with self.assertRaisesRegex(ValueError,'no failed analysis'):create_proposal(self.db,self.source,self.task,'s1',0,self.digest(0),fake,retry_failed=True)
+
+    def test_concurrent_retries_do_not_start_two_model_calls(self):
+        def broken(_):raise OSError('unavailable')
+        with self.assertRaises(ValueError):self.propose(0,broken)
+        digest=self.digest(0);started=threading.Event();release=threading.Event();calls=[]
+        def slow(content):
+            calls.append(1);started.set()
+            if not release.wait(5):raise RuntimeError('test timeout')
+            return fake(content)
+        def retry():
+            db=open_store(self.store,self.source)
+            try:return create_proposal(db,self.source,self.task,'s1',0,digest,slow,retry_failed=True)
+            finally:db.close()
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            first=workers.submit(retry)
+            try:
+                self.assertTrue(started.wait(5))
+                second=workers.submit(retry)
+                with self.assertRaisesRegex(ValueError,'no failed analysis'):second.result(timeout=5)
+            finally:release.set()
+            self.assertEqual(first.result(timeout=5)['status'],'proposed')
+        self.assertEqual(len(calls),1)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM semantic_retry_attempts').fetchone()[0],1)
 
     def test_validation_never_applies_or_stores_bad_output(self):
         def invalid(_):return {'done':True,'done_reason':'stop','prompt_eval_count':20,'eval_count':1,'response':'{"suggestion":"x","delete":"all"}'}

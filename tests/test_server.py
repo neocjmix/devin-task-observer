@@ -151,6 +151,19 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(status,400)
         _,detail=self.request('GET','/api/task?id='+task);self.assertEqual(detail['view']['sections'][0]['items'],[]);self.assertEqual(detail['proposals'][0]['status'],'pending')
 
+    def test_failed_local_analysis_can_be_explicitly_retried_with_budget(self):
+        _,created=self.request('POST','/api/task/create',{'title':'synthetic task'});task=created['id']
+        self.request('POST','/api/link',{'task_id':task,'session_id':'s1'});self.server.enable_local_analysis=True
+        request={'task_id':task,'session_id':'s1','node_id':0,'content_hash':hashlib.sha256(self.raw.encode()).hexdigest()}
+        response={'done':True,'done_reason':'stop','prompt_eval_count':100,'eval_count':20,'response':'{"suggestion":"Synthetic candidate"}'}
+        with patch('observer.semantic.local_generate',side_effect=[OSError('fixture failure'),response]) as model:
+            status,_=self.request('POST','/api/proposal/create',request);self.assertEqual(status,400)
+            _,state=self.request('GET','/api/state');self.assertEqual(state['analysis_budget']['reserved'],2304)
+            request['retry_failed']=True
+            status,result=self.request('POST','/api/proposal/create',request);self.assertEqual(status,200);self.assertEqual(result['status'],'proposed')
+            _,state=self.request('GET','/api/state');self.assertEqual(state['analysis_budget']['reserved'],4608)
+            self.assertEqual(model.call_count,2)
+
     def test_recovery_requires_fresh_snapshot_and_retains_history(self):
         source=sqlite3.connect(self.source)
         source.execute('INSERT INTO message_nodes VALUES (?,?,?,?)',('s1',1,0,json.dumps({'message_id':'m2','role':'assistant','content':'synthetic reply'})))

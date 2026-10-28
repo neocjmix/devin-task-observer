@@ -100,7 +100,7 @@ class Handler(BaseHTTPRequestHandler):
             if target.path=='/api/state':
                 db.execute('BEGIN')
                 allowed={str(w.absolute()) for w in self.server.workspaces}
-                sessions=[{'id':r[0],'title':r[1] or 'Untitled session','status':r[2], 'last_seen':r[4], 'task_count':r[5]} for r in db.execute('SELECT s.id,s.title,s.status,s.workspace,s.last_seen,(SELECT COUNT(*) FROM contributions c LEFT JOIN contribution_state cs ON cs.contribution_id=c.id WHERE c.session_id=s.id AND COALESCE(cs.active,1)=1) FROM sessions s ORDER BY s.last_seen DESC,s.id') if r[3] in allowed]
+                sessions=[{'id':r[0],'title':r[1] or 'Untitled session','status':r[2], 'last_seen':r[4], 'task_count':r[5], 'model':r[6], 'backend':r[7], 'agent_mode':r[8], 'source_created_raw':r[9], 'source_activity_raw':r[10]} for r in db.execute('SELECT s.id,s.title,s.status,s.workspace,s.last_seen,(SELECT COUNT(*) FROM contributions c LEFT JOIN contribution_state cs ON cs.contribution_id=c.id WHERE c.session_id=s.id AND COALESCE(cs.active,1)=1),m.model,m.backend,m.agent_mode,m.source_created_raw,m.source_activity_raw FROM sessions s LEFT JOIN session_metadata m ON m.session_id=s.id ORDER BY s.last_seen DESC,s.id') if r[3] in allowed]
                 day=datetime.datetime.now(datetime.timezone.utc).date().isoformat()
                 reserved=db.execute('SELECT COALESCE(SUM(reserved_tokens),0) FROM semantic_runs WHERE budget_day=?',(day,)).fetchone()[0]
                 reserved+=db.execute('SELECT COALESCE(SUM(reserved_tokens),0) FROM semantic_retry_attempts WHERE budget_day=?',(day,)).fetchone()[0]
@@ -149,6 +149,14 @@ class Handler(BaseHTTPRequestHandler):
                 missing=db.execute('SELECT COUNT(*) FROM source_nodes WHERE session_id=? AND present=0',(sid,)).fetchone()[0]
                 eligible=bool(row and row[0] and not row[1] and row[2]==0 and row[3]==1 and row[4] and row[5] is not None)
                 return self.respond(200,{'eligible':eligible,'missing_nodes':missing,'ambiguous':bool(row and row[2]),'source_present':bool(row and row[3]),'fingerprint':row[4] if eligible else None})
+            if target.path=='/api/session-metadata':
+                sid=query.get('id',[''])[0]
+                if not self.allowed_session(db,sid):return self.respond(404,{'error':'not found'})
+                offset=int(query.get('offset',['0'])[0])
+                if offset<0 or offset>10000000:raise ValueError('invalid offset')
+                fields=('model','backend','agent_mode','source_created_raw','source_activity_raw','observed_at')
+                rows=db.execute('SELECT model,backend,agent_mode,source_created_raw,source_activity_raw,observed_at FROM session_metadata_history WHERE session_id=? ORDER BY id DESC LIMIT 51 OFFSET ?',(sid,offset)).fetchall()
+                return self.respond(200,{'history':[dict(zip(fields,r)) for r in rows[:50]],'next_offset':offset+50 if len(rows)>50 else None})
             if target.path=='/api/session-evidence':
                 sid=query.get('session',[''])[0];node=int(query.get('node',['-1'])[0]);digest=query.get('hash',[''])[0]
                 if not self.allowed_session(db,sid) or not db.execute('SELECT 1 FROM event_evidence WHERE session_id=? AND node_id=? AND content_hash=?',(sid,node,digest)).fetchone():

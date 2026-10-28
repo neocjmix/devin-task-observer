@@ -69,6 +69,18 @@ class ServerTests(unittest.TestCase):
         status,second=self.request('GET','/api/session?id=s1&offset=50');self.assertEqual(status,200)
         self.assertEqual(len(second['events']),11);self.assertIsNone(second['next_offset'])
 
+    def test_session_metadata_and_history_are_workspace_scoped(self):
+        source=sqlite3.connect(self.source)
+        source.execute('ALTER TABLE sessions ADD COLUMN model TEXT')
+        source.execute('ALTER TABLE sessions ADD COLUMN backend_type TEXT')
+        source.execute('ALTER TABLE sessions ADD COLUMN last_activity_at INTEGER')
+        source.execute("UPDATE sessions SET model='synthetic-model',backend_type='synthetic-backend',last_activity_at=1234")
+        source.commit();source.close();self.assertTrue(self.server.refresh()['ok'])
+        _,state=self.request('GET','/api/state');self.assertEqual(state['sessions'][0]['model'],'synthetic-model');self.assertEqual(state['sessions'][0]['source_activity_raw'],1234)
+        status,meta=self.request('GET','/api/session-metadata?id=s1');self.assertEqual(status,200)
+        self.assertEqual(meta['history'][0]['backend'],'synthetic-backend');self.assertIsNone(meta['next_offset'])
+        self.assertEqual(self.request('GET','/api/session-metadata?id=outside')[0],404)
+
     def test_same_snapshot_events_use_observation_order_not_identifier_order(self):
         db=open_store(self.store,self.source)
         with db:

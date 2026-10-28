@@ -239,6 +239,32 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(sync(self.db,snapshot,[self.work]),66);self.assertEqual(self.collect(),0)
         self.assertNotIn(marker.encode(),(self.root/'observer'/'observer.db').read_bytes())
 
+    def test_session_metadata_changes_are_recorded_atomically_and_replayed(self):
+        for definition in ('model TEXT','backend_type TEXT','agent_mode TEXT','created_at INTEGER','last_activity_at INTEGER'):
+            self.writer.execute('ALTER TABLE sessions ADD COLUMN '+definition)
+        self.writer.execute("UPDATE sessions SET model='synthetic-model',backend_type='synthetic-backend',agent_mode='test',created_at=10,last_activity_at=20")
+        self.writer.commit();self.collect()
+        row=self.db.execute('SELECT model,backend,agent_mode,source_created_raw,source_activity_raw FROM session_metadata').fetchone()
+        self.assertEqual(row,('synthetic-model','synthetic-backend','test',10,20))
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM session_metadata_history').fetchone()[0],1)
+        self.writer.execute("UPDATE sessions SET model='new-model',last_activity_at=21");self.writer.commit()
+        self.assertEqual(self.collect(),0)
+        self.assertEqual(self.db.execute('SELECT model,source_activity_raw FROM session_metadata').fetchone(),('new-model',21))
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM session_metadata_history').fetchone()[0],2)
+        self.assertEqual(self.collect(),0);self.assertEqual(self.db.execute('SELECT COUNT(*) FROM session_metadata_history').fetchone()[0],2)
+        checkpoint=self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0]
+        self.db.execute("CREATE TRIGGER fail_metadata BEFORE INSERT ON session_metadata_history BEGIN SELECT RAISE(ABORT, 'fixture failure'); END");self.db.commit()
+        self.writer.execute("UPDATE sessions SET model='third-model',main_chain_id=2")
+        self.writer.execute('INSERT INTO message_nodes VALUES (?,?,?,?,?)',(3,'one',2,1,message('c','synthetic')));self.writer.commit()
+        with self.assertRaises(sqlite3.IntegrityError):self.collect()
+        self.assertEqual(self.db.execute('SELECT model FROM session_metadata').fetchone()[0],'new-model')
+        self.assertEqual(self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0],checkpoint)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM source_nodes').fetchone()[0],2)
+        self.db.execute('DROP TRIGGER fail_metadata');self.db.commit();self.collect()
+        self.writer.execute("UPDATE sessions SET last_activity_at='not-an-integer'");self.writer.commit()
+        with self.assertRaises(SourceIncomplete):self.collect()
+        self.assertEqual(self.db.execute('SELECT model,source_activity_raw FROM session_metadata').fetchone(),('third-model',21))
+
     def test_transient_source_failure_recovers_but_structural_stale_does_not(self):
         self.collect()
         mark_source_unavailable(self.db, [self.work])
@@ -304,6 +330,19 @@ class CollectorTests(unittest.TestCase):
         self.writer.execute('UPDATE message_nodes SET chat_message=? WHERE node_id=3',(json.dumps(changed),)); self.writer.commit()
         self.collect()
         self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'stale')
+
+    def test_observed_timing_only_variant_preserves_nodes_without_false_ambiguity(self):
+        base={'message_id':'timed-message','role':'assistant','content':'synthetic answer','metadata':{'metrics':{'tpot_ms':1.25,'ttft_ms':15}}}
+        changed=json.loads(json.dumps(base));changed['metadata']['metrics']['tpot_ms']=1.50
+        self.writer.execute('INSERT INTO message_nodes VALUES (?,?,?,?,?)',(3,'one',2,1,json.dumps(base)))
+        self.writer.execute('INSERT INTO message_nodes VALUES (?,?,?,?,?)',(4,'one',3,2,json.dumps(changed)))
+        self.writer.execute('UPDATE sessions SET main_chain_id=3');self.writer.commit()
+        self.assertEqual(self.collect(),4);self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0],'current')
+        self.assertEqual(self.db.execute("SELECT COUNT(DISTINCT content_hash) FROM source_nodes WHERE message_id='timed-message'").fetchone()[0],2)
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM event_evidence WHERE message_id='timed-message'").fetchone()[0],2)
+        changed['metadata']['metrics']['ttft_ms']=16
+        self.writer.execute('UPDATE message_nodes SET chat_message=? WHERE node_id=3',(json.dumps(changed),));self.writer.commit();self.collect()
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0],'stale')
 
     def test_reorder_and_disappeared_session_preserve_history(self):
         self.collect()

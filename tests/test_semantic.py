@@ -58,6 +58,28 @@ class SemanticTests(unittest.TestCase):
         self.assertTrue(repeated['cached']);self.assertEqual(repeated['proposal_id'],first['proposal_id'])
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM semantic_runs').fetchone()[0],1)
 
+    def test_metadata_only_change_reuses_input_but_text_change_creates_new_run(self):
+        first=self.propose(0)
+        source=sqlite3.connect(self.source)
+        raw=source.execute('SELECT chat_message FROM message_nodes WHERE node_id=0').fetchone()[0];value=json.loads(raw)
+        value['metadata']['synthetic_timing']=123
+        source.execute('UPDATE message_nodes SET chat_message=? WHERE node_id=0',(json.dumps(value),));source.commit()
+        sync(self.db,read_sessions(self.source,[self.workspace]),[self.workspace])
+        def fail(_):raise AssertionError('unchanged text was analyzed again')
+        cached=self.propose(0,fail);self.assertTrue(cached['cached']);self.assertEqual(cached['proposal_id'],first['proposal_id'])
+        value['content']='A different synthetic input'
+        source.execute('UPDATE message_nodes SET chat_message=? WHERE node_id=0',(json.dumps(value),));source.commit();source.close()
+        sync(self.db,read_sessions(self.source,[self.workspace]),[self.workspace])
+        changed=self.propose(0);self.assertFalse(changed['cached']);self.assertNotEqual(changed['run_id'],first['run_id'])
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM semantic_runs').fetchone()[0],2)
+
+    def test_legacy_run_cache_is_backfilled_only_for_the_exact_source(self):
+        first=self.propose(0)
+        with self.db:self.db.execute('DELETE FROM semantic_input_keys')
+        def fail(_):raise AssertionError('legacy cached input was analyzed again')
+        self.assertEqual(self.propose(0,fail)['proposal_id'],first['proposal_id'])
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM semantic_input_keys').fetchone()[0],1)
+
     def test_daily_reservation_survives_failures_and_caps_calls(self):
         def broken(_):raise OSError('unavailable')
         with self.assertRaises(ValueError):self.propose(0,broken)

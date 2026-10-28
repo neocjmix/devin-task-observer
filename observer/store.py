@@ -47,6 +47,14 @@ CREATE TABLE IF NOT EXISTS session_health (
 CREATE TABLE IF NOT EXISTS session_validation (
  session_id TEXT PRIMARY KEY, ambiguous INTEGER NOT NULL, present INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS session_metadata (
+ session_id TEXT PRIMARY KEY REFERENCES sessions(id), model TEXT, backend TEXT, agent_mode TEXT,
+ source_created_raw INTEGER, source_activity_raw INTEGER
+);
+CREATE TABLE IF NOT EXISTS session_metadata_history (
+ id INTEGER PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id), model TEXT, backend TEXT,
+ agent_mode TEXT, source_created_raw INTEGER, source_activity_raw INTEGER, observed_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS recovery_history (
  id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, source_fingerprint TEXT NOT NULL,
  missing_nodes INTEGER NOT NULL, acknowledged_at INTEGER NOT NULL
@@ -136,6 +144,9 @@ CREATE TABLE IF NOT EXISTS semantic_retry_attempts (
 CREATE TABLE IF NOT EXISTS semantic_lock_runs (
  run_id TEXT PRIMARY KEY REFERENCES semantic_runs(id)
 );
+CREATE TABLE IF NOT EXISTS semantic_input_keys (
+ run_id TEXT PRIMARY KEY REFERENCES semantic_runs(id), message_id TEXT NOT NULL, input_hash TEXT NOT NULL
+);
 '''
 
 
@@ -193,6 +204,12 @@ def sync(db, snapshots, workspaces, source_identity=None):
             db.execute('INSERT INTO session_health VALUES (?,?,0) ON CONFLICT(session_id) DO UPDATE SET structural_stale=excluded.structural_stale,source_unavailable=0', (sid,int(structural_stale)))
             db.execute('INSERT INTO session_validation VALUES (?,?,1) ON CONFLICT(session_id) DO UPDATE SET ambiguous=excluded.ambiguous,present=1',(sid,int(session['ambiguous'])))
             db.execute('INSERT INTO sessions VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title, workspace=excluded.workspace, head=excluded.head, status=excluded.status, last_seen=excluded.last_seen', (sid, session['title'], session['workspace'], session['head'], status, now))
+            metadata=session.get('metadata',{})
+            fields=tuple(metadata.get(k) for k in ('model','backend','agent_mode','source_created_raw','source_activity_raw'))
+            previous=db.execute('SELECT model,backend,agent_mode,source_created_raw,source_activity_raw FROM session_metadata WHERE session_id=?',(sid,)).fetchone()
+            if previous!=fields:
+                db.execute('INSERT INTO session_metadata_history(session_id,model,backend,agent_mode,source_created_raw,source_activity_raw,observed_at) VALUES (?,?,?,?,?,?,?)',(sid,*fields,now))
+                db.execute('INSERT INTO session_metadata VALUES (?,?,?,?,?,?) ON CONFLICT(session_id) DO UPDATE SET model=excluded.model,backend=excluded.backend,agent_mode=excluded.agent_mode,source_created_raw=excluded.source_created_raw,source_activity_raw=excluded.source_activity_raw',(sid,*fields))
             for node_id, node in current.items():
                 db.execute('INSERT INTO node_kinds VALUES (?,?,?,?) ON CONFLICT(session_id,node_id,content_hash) DO UPDATE SET kinds=excluded.kinds', (sid,node_id,node['content_hash'],json.dumps(node['kinds'])))
                 for kind, discriminator in node['event_keys']:

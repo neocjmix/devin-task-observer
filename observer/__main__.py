@@ -41,7 +41,8 @@ def main():
                 if identity != (after.st_dev, after.st_ino):
                     raise SourceIncomplete('source replaced while reading')
                 count = sync(db, snapshot, args.workspace, identity)
-                stale = db.execute("SELECT COUNT(*) FROM sessions WHERE status='stale'").fetchone()[0]
+                allowed_workspaces = {str(workspace.absolute()) for workspace in args.workspace}
+                stale = sum(1 for status,workspace in db.execute('SELECT status,workspace FROM sessions') if status == 'stale' and workspace in allowed_workspaces)
                 print(json.dumps({'ok': True, 'sessions': len(snapshot), 'transitions': count, 'stale_sessions': stale}), flush=True)
             except BlockingIOError:
                 print(json.dumps({'ok': False, 'stage': 'lock', 'error': 'busy'}), flush=True)

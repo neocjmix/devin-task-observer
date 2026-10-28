@@ -44,6 +44,43 @@ CREATE TABLE IF NOT EXISTS session_health (
 CREATE TABLE IF NOT EXISTS source_identity (
  singleton INTEGER PRIMARY KEY CHECK(singleton=1), device INTEGER NOT NULL, inode INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS tasks (
+ id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL,
+ lifecycle TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+ revision INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS contributions (
+ id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id),
+ session_id TEXT NOT NULL REFERENCES sessions(id), role TEXT NOT NULL,
+ scope TEXT NOT NULL, linked_by TEXT NOT NULL, confidence REAL,
+ linked_at INTEGER NOT NULL, UNIQUE(task_id,session_id)
+);
+CREATE TABLE IF NOT EXISTS resources (
+ id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), kind TEXT NOT NULL,
+ uri TEXT NOT NULL, external_status TEXT NOT NULL, verified_at INTEGER, created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS task_views (
+ id TEXT PRIMARY KEY, task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id), revision INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS view_sections (
+ id TEXT PRIMARY KEY, view_id TEXT NOT NULL REFERENCES task_views(id), title TEXT NOT NULL,
+ position INTEGER NOT NULL, UNIQUE(view_id,position)
+);
+CREATE TABLE IF NOT EXISTS view_items (
+ id TEXT PRIMARY KEY, section_id TEXT NOT NULL REFERENCES view_sections(id),
+ content TEXT NOT NULL, status TEXT NOT NULL, origin TEXT NOT NULL, pinned INTEGER NOT NULL,
+ position INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+ UNIQUE(section_id,position)
+);
+CREATE TABLE IF NOT EXISTS view_item_history (
+ id INTEGER PRIMARY KEY, item_id TEXT NOT NULL REFERENCES view_items(id), content TEXT NOT NULL,
+ status TEXT NOT NULL, pinned INTEGER NOT NULL, saved_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS item_evidence (
+ item_id TEXT NOT NULL REFERENCES view_items(id), session_id TEXT NOT NULL REFERENCES sessions(id),
+ node_id INTEGER NOT NULL, content_hash TEXT NOT NULL,
+ PRIMARY KEY(item_id,session_id,node_id,content_hash)
+);
 '''
 
 
@@ -59,6 +96,7 @@ def open_store(path: Path, source: Path):
         fd = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         os.close(fd)
     db = sqlite3.connect(target)
+    db.execute('PRAGMA foreign_keys=ON')
     db.executescript(SCHEMA)
     with db:
         db.execute("INSERT OR IGNORE INTO session_health SELECT id, CASE WHEN status='stale' THEN 1 ELSE 0 END, 0 FROM sessions")

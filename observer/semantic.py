@@ -4,10 +4,13 @@ A single selected new node is sent to a fixed local model. Suggestions are
 never applied without a separate human action. This is not full reconciliation.
 """
 import datetime
+import fcntl
 import http.client
 import json
+import os
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 from .devin_local import read_evidence
@@ -57,7 +60,25 @@ def _cached_run(db,task_id,session_id,content_hash,message_id):
     return db.execute('''SELECT r.id,r.status,p.id,r.node_id FROM semantic_runs r LEFT JOIN semantic_proposals p ON p.run_id=r.id WHERE r.task_id=? AND r.session_id=? AND r.content_hash=? AND r.model=? AND r.prompt_version=? AND EXISTS (SELECT 1 FROM observations o WHERE o.session_id=r.session_id AND o.node_id=r.node_id AND o.content_hash=r.content_hash AND o.message_id=?)''',(task_id,session_id,content_hash,MODEL,PROMPT_VERSION,message_id)).fetchone()
 
 
+@contextmanager
+def _analysis_lock(db):
+    store=db.execute('PRAGMA database_list').fetchone()[2]
+    if not store:raise ValueError('analysis requires an on-disk store')
+    fd=os.open(store+'.semantic.lock',os.O_RDWR|os.O_CREAT|getattr(os,'O_NOFOLLOW',0),0o600)
+    try:
+        try:fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError:raise ValueError('local analysis is busy') from None
+        try:yield
+        finally:fcntl.flock(fd,fcntl.LOCK_UN)
+    finally:os.close(fd)
+
+
 def create_proposal(db, source: Path, task_id, session_id, node_id, content_hash, generate=None, *, retry_failed=False):
+    with _analysis_lock(db):
+        return _create_proposal_locked(db,source,task_id,session_id,node_id,content_hash,generate,retry_failed=retry_failed)
+
+
+def _create_proposal_locked(db, source, task_id, session_id, node_id, content_hash, generate, *, retry_failed):
     if not isinstance(retry_failed,bool):raise ValueError('invalid retry request')
     row=db.execute('''SELECT s.workspace,s.status,n.content_hash,n.present,k.kinds,n.message_id
         FROM sessions s JOIN source_nodes n ON n.session_id=s.id
@@ -70,7 +91,7 @@ def create_proposal(db, source: Path, task_id, session_id, node_id, content_hash
     kinds=json.loads(row[4]) if row[4] else []
     if not any(x in kinds for x in ('user','assistant')):raise ValueError('unsupported evidence type')
     cached=_cached_run(db,task_id,session_id,content_hash,row[5])
-    if retry_failed and (not cached or cached[1]!='failed' or cached[3]!=node_id):raise ValueError('no failed analysis for this node')
+    if retry_failed and (not cached or cached[1] not in ('failed','pending') or cached[3]!=node_id):raise ValueError('no failed analysis for this node')
     if cached and not retry_failed:return {'run_id':cached[0],'status':cached[1],'proposal_id':cached[2],'cached':True}
     evidence=read_evidence(source,Path(row[0]),session_id,node_id,content_hash)
     content=evidence.get('content')
@@ -82,16 +103,22 @@ def create_proposal(db, source: Path, task_id, session_id, node_id, content_hash
         cached=_cached_run(db,task_id,session_id,content_hash,row[5])
         if cached and not retry_failed:
             db.rollback();return {'run_id':cached[0],'status':cached[1],'proposal_id':cached[2],'cached':True}
-        if retry_failed and (not cached or cached[1]!='failed' or cached[3]!=node_id):raise ValueError('no failed analysis for this node')
+        if retry_failed and (not cached or cached[1] not in ('failed','pending') or cached[3]!=node_id):raise ValueError('no failed analysis for this node')
         spent=db.execute('SELECT COALESCE(SUM(reserved_tokens),0) FROM semantic_runs WHERE budget_day=?',(day,)).fetchone()[0]
         spent+=db.execute('SELECT COALESCE(SUM(reserved_tokens),0) FROM semantic_retry_attempts WHERE budget_day=?',(day,)).fetchone()[0]
         if spent+RESERVATION>DAILY_BUDGET:raise ValueError('daily local analysis budget exhausted')
         if retry_failed:
             run_id=cached[0];retry_id=str(uuid.uuid4())
+            if cached[1]=='pending':
+                if not db.execute('SELECT 1 FROM semantic_lock_runs WHERE run_id=?',(run_id,)).fetchone():
+                    raise ValueError('pending run requires manual review')
+                db.execute("UPDATE semantic_retry_attempts SET status='interrupted' WHERE run_id=? AND status='pending'",(run_id,))
+            db.execute('INSERT OR IGNORE INTO semantic_lock_runs VALUES (?)',(run_id,))
             db.execute('INSERT INTO semantic_retry_attempts VALUES (?,?,?,?,?,?,?,?)',(retry_id,run_id,day,RESERVATION,None,None,'pending',time.time_ns()))
             db.execute("UPDATE semantic_runs SET status='pending' WHERE id=?",(run_id,))
         else:
             db.execute('INSERT INTO semantic_runs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',(run_id,task_id,session_id,node_id,content_hash,MODEL,PROMPT_VERSION,day,RESERVATION,None,None,'pending',time.time_ns()))
+            db.execute('INSERT INTO semantic_lock_runs VALUES (?)',(run_id,))
         db.commit()
     except Exception:
         db.rollback();raise

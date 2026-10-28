@@ -132,6 +132,9 @@ CREATE TABLE IF NOT EXISTS semantic_retry_attempts (
  reserved_tokens INTEGER NOT NULL, prompt_tokens INTEGER, output_tokens INTEGER,
  status TEXT NOT NULL, created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS semantic_lock_runs (
+ run_id TEXT PRIMARY KEY REFERENCES semantic_runs(id)
+);
 '''
 
 

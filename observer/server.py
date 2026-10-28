@@ -287,6 +287,8 @@ class Handler(BaseHTTPRequestHandler):
                 'local analysis failed; reserved budget is retained':'로컬 모델 분석에 실패했습니다. 예약된 예산은 유지됩니다.',
                 'current linked evidence required':'현재 연결된 최신 근거를 선택하세요.',
                 'no failed analysis for this node':'선택한 노드에는 재시도할 실패 기록이 없습니다.',
+                'local analysis is busy':'다른 로컬 분석이 진행 중입니다. 완료 후 다시 시도하세요.',
+                'pending run requires manual review':'이전 버전에서 중단된 분석은 상태를 확인해야 합니다.',
             }
             return self.respond(400,{'error':safe.get(str(error),'invalid or unavailable data')})
         except (KeyError,TypeError,sqlite3.Error,OSError,SourceIncomplete):

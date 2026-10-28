@@ -1,5 +1,7 @@
 import json
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -92,11 +94,49 @@ class SemanticTests(unittest.TestCase):
             try:
                 self.assertTrue(started.wait(5))
                 second=workers.submit(retry)
-                with self.assertRaisesRegex(ValueError,'no failed analysis'):second.result(timeout=5)
+                with self.assertRaisesRegex(ValueError,'local analysis is busy'):second.result(timeout=5)
             finally:release.set()
             self.assertEqual(first.result(timeout=5)['status'],'proposed')
         self.assertEqual(len(calls),1)
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM semantic_retry_attempts').fetchone()[0],1)
+
+    def test_killed_analysis_can_be_retried_without_losing_reserved_budget(self):
+        code='''
+import sys,time
+from pathlib import Path
+from observer.store import open_store
+from observer.semantic import create_proposal
+db=open_store(Path(sys.argv[1]),Path(sys.argv[2]))
+def wait_for_kill(_):
+ print('ready',flush=True)
+ time.sleep(30)
+ return {}
+create_proposal(db,Path(sys.argv[2]),sys.argv[3],'s1',0,sys.argv[4],wait_for_kill)
+'''
+        child=subprocess.Popen([sys.executable,'-c',code,str(self.store),str(self.source),self.task,self.digest(0)],stdout=subprocess.PIPE,text=True)
+        try:
+            self.assertEqual(child.stdout.readline().strip(),'ready')
+            with self.assertRaisesRegex(ValueError,'local analysis is busy'):
+                create_proposal(self.db,self.source,self.task,'s1',0,self.digest(0),fake,retry_failed=True)
+            child.kill();child.wait(timeout=5)
+        finally:
+            if child.poll() is None:child.kill();child.wait(timeout=5)
+            child.stdout.close()
+        self.assertEqual(self.db.execute('SELECT status,reserved_tokens FROM semantic_runs').fetchone(),('pending',2304))
+        result=create_proposal(self.db,self.source,self.task,'s1',0,self.digest(0),fake,retry_failed=True)
+        self.assertEqual(result['status'],'proposed')
+        self.assertEqual(self.db.execute('SELECT reserved_tokens,status FROM semantic_retry_attempts').fetchone(),(2304,'proposed'))
+
+    def test_legacy_pending_run_cannot_be_assumed_interrupted(self):
+        def broken(_):raise OSError('fixture failure')
+        with self.assertRaises(ValueError):self.propose(0,broken)
+        with self.db:
+            self.db.execute('DELETE FROM semantic_lock_runs')
+            self.db.execute("UPDATE semantic_runs SET status='pending'")
+        with self.assertRaisesRegex(ValueError,'requires manual review'):
+            create_proposal(self.db,self.source,self.task,'s1',0,self.digest(0),fake,retry_failed=True)
+        self.assertEqual(self.db.execute('SELECT status FROM semantic_runs').fetchone()[0],'pending')
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM semantic_retry_attempts').fetchone()[0],0)
 
     def test_validation_never_applies_or_stores_bad_output(self):
         def invalid(_):return {'done':True,'done_reason':'stop','prompt_eval_count':20,'eval_count':1,'response':'{"suggestion":"x","delete":"all"}'}
@@ -129,9 +169,10 @@ class SemanticTests(unittest.TestCase):
             finally:db.close()
         with ThreadPoolExecutor(max_workers=3) as workers:
             results=list(workers.map(request,range(3)))
-        self.assertEqual(results.count('proposed'),2)
-        self.assertEqual(results.count('daily local analysis budget exhausted'),1)
-        self.assertEqual(self.db.execute('SELECT SUM(reserved_tokens) FROM semantic_runs').fetchone()[0],4608)
+        self.assertGreaterEqual(results.count('proposed'),1)
+        self.assertLessEqual(results.count('proposed'),2)
+        self.assertTrue(all(r in ('proposed','daily local analysis budget exhausted','local analysis is busy') for r in results))
+        self.assertLessEqual(self.db.execute('SELECT SUM(reserved_tokens) FROM semantic_runs').fetchone()[0],4608)
 
 
 if __name__=='__main__':unittest.main()

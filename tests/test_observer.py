@@ -124,6 +124,21 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(self.collect(), 0)
         self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'current')
 
+    def test_observed_additive_tool_metadata_preserves_both_nodes(self):
+        base = {'message_id':'tool-msg','role':'assistant','content':'', 'tool_calls':[{'id':'call','name':'read','arguments':'{}','index':0,'kind':'tool'}], 'metadata':{}}
+        updated = json.loads(json.dumps(base))
+        updated['metadata']['extensions'] = {'chisel/tool_call_content': {'call': []}}
+        self.writer.execute('INSERT INTO message_nodes VALUES(?,?,?,?,?)',(3,'one',2,1,json.dumps(base)))
+        self.writer.execute('INSERT INTO message_nodes VALUES(?,?,?,?,?)',(4,'one',3,2,json.dumps(updated)))
+        self.writer.execute('UPDATE sessions SET main_chain_id=3'); self.writer.commit()
+        self.assertEqual(self.collect(), 4)
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'current')
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM source_nodes').fetchone()[0], 4)
+        changed = json.loads(json.dumps(updated)); changed['content'] = 'different'
+        self.writer.execute('UPDATE message_nodes SET chat_message=? WHERE node_id=3',(json.dumps(changed),)); self.writer.commit()
+        self.collect()
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'stale')
+
     def test_reorder_and_disappeared_session_preserve_history(self):
         self.collect()
         self.writer.execute('UPDATE message_nodes SET parent_node_id=NULL WHERE node_id=1')

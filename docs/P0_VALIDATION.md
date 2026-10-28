@@ -35,7 +35,7 @@ The only prompts and workspaces used for these experiments were synthetic. Names
 
 ## Validation
 
-`python3 -m unittest discover -s tests -v`: 7 synthetic tests passed. They cover same-length edits, add/delete and replay, symlink exclusion, private snapshot permissions, incomplete-scan preservation, workspace scoping, duplicate IDs, chain traversal, keyed fingerprint changes, refusal to create a missing database, an exclusive SQLite lock, malformed JSON, and a broken chain. A separate CLI smoke test on a temporary synthetic file passed initial discovery, same-size modification, unchanged replay and source preservation. These fixtures do not establish Devin integration correctness.
+The P0 diagnostics have 7 synthetic tests, included in the full suite reported in [P1 progress](P1_PROGRESS.md). They cover same-length edits, add/delete and replay, symlink exclusion, private snapshot permissions, incomplete-scan preservation, workspace scoping, duplicate IDs, chain traversal, keyed fingerprint changes, refusal to create a missing database, an exclusive SQLite lock, malformed JSON, and a broken chain. A separate CLI smoke test on a temporary synthetic file passed initial discovery, same-size modification, unchanged replay and source preservation. These fixtures do not establish Devin integration correctness.
 
 ## Remaining risks and P1 validation
 

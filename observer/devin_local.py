@@ -5,12 +5,39 @@ branches are user-visible. It does not attach to the agent or modify its store.
 """
 import hashlib
 import json
+import copy
 import sqlite3
 from pathlib import Path
 
 
 class SourceIncomplete(Exception):
     """The source is unavailable or cannot be interpreted without guessing."""
+
+
+def observed_tool_revision(a, b):
+    """Recognize only the additive metadata variant observed in the P0 test.
+
+    Both node hashes remain in the store. This does not merge messages or
+    interpret the tool content; every other difference remains ambiguous.
+    """
+    if a.get('role') != 'assistant' or b.get('role') != 'assistant' or not isinstance(a.get('tool_calls'), list) or not a['tool_calls']:
+        return False
+    a, b = copy.deepcopy(a), copy.deepcopy(b)
+    values = []
+    for item in (a, b):
+        metadata = item.get('metadata')
+        if not isinstance(metadata, dict):
+            return False
+        extensions = metadata.get('extensions')
+        if extensions is None:
+            values.append(None)
+        elif isinstance(extensions, dict):
+            values.append(extensions.pop('chisel/tool_call_content', None))
+            if not extensions:
+                metadata.pop('extensions', None)
+        else:
+            return False
+    return a == b and sum(isinstance(v, dict) for v in values) == 1 and any(v is None for v in values)
 
 
 def read_sessions(database: Path, workspaces: list[Path]):
@@ -48,9 +75,11 @@ def read_sessions(database: Path, workspaces: list[Path]):
                         raise SourceIncomplete('missing message identifier')
                     role = data.get('role') if data.get('role') in ('user', 'assistant', 'system', 'tool') else 'unknown'
                     digest = hashlib.sha256(raw.encode('utf-8')).hexdigest()
-                    if message_id in by_message and by_message[message_id] != digest:
-                        ambiguous = True
-                    by_message[message_id] = digest
+                    if message_id in by_message:
+                        previous_digest, previous_data = by_message[message_id]
+                        if previous_digest != digest and not observed_tool_revision(previous_data, data):
+                            ambiguous = True
+                    by_message[message_id] = (digest, data)
                     parents[node_id] = parent
                     nodes.append({'node_id': node_id, 'parent_id': parent, 'message_id': message_id, 'role': role, 'content_hash': digest})
                 cursor, seen = head, set()

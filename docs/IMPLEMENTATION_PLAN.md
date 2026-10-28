@@ -56,3 +56,32 @@ Devin unaffected by observer crashes; no writes/prompts to sessions; idempotent 
 ## First task
 
 Implement a read-only personal Devin Desktop probe reporting session discovery, source schema, write behavior and stable identifiers without storing message bodies. Document sanitized findings before building the dashboard.
+
+
+## Product North Star — M2 Semantic Task Tracking (normative)
+
+The product is **not** a manual notebook or merely a deterministic session dashboard. After a user creates a task and links relevant sessions once, the manager must maintain an **always-readable, stable, task-specific current-state view** with progress, blockers, decisions, unresolved questions, next actions, tickets/PRs and supporting evidence. The ordinary interaction is **read, not retype, ask each agent, or approve every routine update**. Sessions remain independent and read-only to the manager; no agent-side reporting contract is required.
+
+M1 deterministic resource and structured-plan discovery is the foundation, **not product completion**. The next product-critical milestone is **M2: incremental semantic reconciliation**. LLM calls are optional at runtime and budget-controlled, but semantic understanding is required to deliver the full product goal. Default-off/zero-token operation must continue to function with an explicitly marked semantic freshness gap.
+
+### M2 minimal vertical slice (implement before broad polish)
+
+1. For a task linked to two sessions, obtain new normalized evidence since each *semantic* checkpoint; deterministic collection checkpoints and semantic checkpoints are separate.
+2. Use rule-based extraction first; select only relevant new natural-language/tool events and affected existing view items. Retrieve older context only if a reference requires it. No whole-transcript or whole-view summarization on routine refresh.
+3. Send the task-specific View Contract, affected items and evidence IDs to a configurable **approved** model adapter. Start with manual Refresh; add debounced automatic updates only after accuracy and cost are measured.
+4. Produce structured, bounded patches for progress, blockers, decisions, open questions, next actions and task-specific sections. Distinguish reported claims, verified facts and hypotheses. Cross-session contradictions remain visible.
+5. Deterministic Core validates revision, provenance, permissions, idempotency and non-destructive rules. Auto-apply only safe, evidence-backed additive/status changes to a separate *machine-managed* projection. Never overwrite human-owned or pinned items. Destructive changes, conflict resolution and View structural edits require explicit approval.
+6. Persist semantic checkpoint only with successfully committed effects or a durable reviewed/no-change outcome. Retries must not duplicate items; failed/budget-exhausted updates retain pending deltas and show stale semantic status.
+7. Dashboard reads saved state without model calls and shows last semantic refresh, source provenance, uncertainty and pending changes. User can correct/override results without losing subsequent updates.
+
+### Acceptance: task-state utility, not only passing tests
+
+With two linked sessions containing a synthetic cross-session dependency change, the dashboard must automatically show the changed blocker and next action after one semantic refresh, preserve previous decisions and human notes, and provide traceable evidence. Replay produces no duplicates. Contradictory evidence is not silently resolved. Unchanged refresh consumes zero model tokens. Budget exhaustion leaves deterministic tracking usable. Compare against manually labeled synthetic scenarios for omissions and unsupported assertions; measure status-only session revisits in dogfood.
+
+### Explicit non-goals for M2
+
+No ACP control, wrapper, agent reporting skills, broad provider support, full chronological transcript reconstruction, generic workflow engine, cloud service, UI redesign or expansion of the legacy single-message Ollama experiment. Reuse existing storage/projections where possible; avoid speculative abstraction.
+
+### Delivery priority override
+
+P0–P3 and M1 are infrastructure milestones. **M2 semantic task tracking is the next critical path, ahead of further UI polish, generalized transcript reconstruction, and new metadata features.** P5 dogfood follows M2. Do not claim the product goal achieved from deterministic candidates alone.

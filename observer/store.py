@@ -5,6 +5,8 @@ import os
 import sqlite3
 import time
 from pathlib import Path
+from .discovery import SCHEMA as DISCOVERY_SCHEMA, save_mentions
+from .plans import SCHEMA as PLAN_SCHEMA, save_plans
 
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS sessions (
@@ -66,6 +68,10 @@ CREATE TABLE IF NOT EXISTS recovery_history (
 );
 CREATE TABLE IF NOT EXISTS source_identity (
  singleton INTEGER PRIMARY KEY CHECK(singleton=1), device INTEGER NOT NULL, inode INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS collector_status (
+ singleton INTEGER PRIMARY KEY CHECK(singleton=1), last_success INTEGER,
+ last_attempt INTEGER NOT NULL, last_error TEXT
 );
 CREATE TABLE IF NOT EXISTS tasks (
  id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL,
@@ -168,7 +174,7 @@ def open_store(path: Path, source: Path):
         os.close(fd)
     db = sqlite3.connect(target)
     db.execute('PRAGMA foreign_keys=ON')
-    db.executescript(SCHEMA)
+    db.executescript(SCHEMA + DISCOVERY_SCHEMA + PLAN_SCHEMA)
     db.execute('BEGIN IMMEDIATE')
     try:
         columns={r[1] for r in db.execute('PRAGMA table_info(session_validation)')}
@@ -218,6 +224,8 @@ def sync(db, snapshots, workspaces, source_identity=None, stats=None):
                 db.execute('INSERT INTO session_metadata_history(session_id,model,backend,agent_mode,source_created_raw,source_activity_raw,observed_at) VALUES (?,?,?,?,?,?,?)',(sid,*fields,now))
                 db.execute('INSERT INTO session_metadata VALUES (?,?,?,?,?,?) ON CONFLICT(session_id) DO UPDATE SET model=excluded.model,backend=excluded.backend,agent_mode=excluded.agent_mode,source_created_raw=excluded.source_created_raw,source_activity_raw=excluded.source_activity_raw',(sid,*fields))
             for node_id, node in current.items():
+                save_mentions(db,session['workspace'],sid,node,now)
+                save_plans(db,sid,node)
                 db.execute('INSERT INTO node_kinds VALUES (?,?,?,?) ON CONFLICT(session_id,node_id,content_hash) DO UPDATE SET kinds=excluded.kinds', (sid,node_id,node['content_hash'],json.dumps(node['kinds'])))
                 db.execute('INSERT INTO node_equivalence VALUES (?,?,?,?) ON CONFLICT(session_id,node_id,content_hash) DO UPDATE SET identity_hash=excluded.identity_hash',(sid,node_id,node['content_hash'],node.get('equivalence_hash','raw:'+node['content_hash'])))
                 for kind, discriminator in node['event_keys']:
@@ -245,13 +253,15 @@ def sync(db, snapshots, workspaces, source_identity=None, stats=None):
                     db.execute("UPDATE sessions SET status='stale' WHERE id=?", (sid,))
                     db.execute('INSERT INTO session_health VALUES (?,1,0) ON CONFLICT(session_id) DO UPDATE SET structural_stale=1', (sid,))
                     db.execute('UPDATE session_validation SET present=0 WHERE session_id=?',(sid,))
+        db.execute('INSERT INTO collector_status VALUES (1,?,?,NULL) ON CONFLICT(singleton) DO UPDATE SET last_success=excluded.last_success,last_attempt=excluded.last_attempt,last_error=NULL',(now,now))
     if stats is not None:stats['metadata_changes']=metadata_changes
     return changes
 
 
-def mark_source_unavailable(db, workspaces):
+def mark_source_unavailable(db, workspaces, reason='source_unavailable'):
     """Keep prior checkpoints but flag them until a complete snapshot returns."""
     with db:
+        db.execute('INSERT INTO collector_status VALUES (1,NULL,?,?) ON CONFLICT(singleton) DO UPDATE SET last_attempt=excluded.last_attempt,last_error=excluded.last_error',(time.time_ns(),reason))
         for workspace in set(str(Path(p).absolute()) for p in workspaces):
             ids = [r[0] for r in db.execute('SELECT id FROM sessions WHERE workspace=?', (workspace,))]
             for sid in ids:

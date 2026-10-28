@@ -1,6 +1,7 @@
 """User-controlled local task registry and many-to-many session links."""
 import time
 import uuid
+import re
 from urllib.parse import urlsplit
 
 
@@ -125,11 +126,15 @@ def update_contribution(db, task_id, link_id, expected_revision, *, role=None, s
 
 
 def _validate_resource(kind, uri):
-    if kind not in ('ticket','pr','repo','document','commit','test','other'):
+    if kind not in ('ticket','pr','repo','document','commit','test','other','branch','worktree'):
         raise ValueError('invalid resource kind')
     if not isinstance(uri,str) or not uri.strip() or len(uri)>2048:
         raise ValueError('invalid resource URI')
     uri=uri.strip()
+    if kind=='ticket' and re.fullmatch(r'[A-Z][A-Z0-9]{1,9}-[1-9][0-9]{0,7}',uri):return uri
+    if kind=='commit' and re.fullmatch(r'[0-9a-fA-F]{7,40}',uri):return uri
+    if (kind=='branch' and len(uri)<=1024 and re.fullmatch(r'[^\s~^:?*\[\]\\\x00-\x1f]+',uri)
+        and not any(x in uri for x in ('..','@{','//')) and not uri.startswith(('.','-')) and not uri.endswith(('/','.','.lock'))):return uri
     parsed=urlsplit(uri)
     if not ((parsed.scheme in ('http','https') and parsed.netloc and parsed.username is None and parsed.password is None) or (uri.startswith('/') and not parsed.scheme and not uri.startswith('//'))):
         raise ValueError('resource must be an HTTP URL or absolute local path')

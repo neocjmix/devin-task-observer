@@ -47,3 +47,8 @@ The P0 diagnostics have 7 synthetic tests, included in the full suite reported i
 - Measure source lock/sidecar effects and observer crash behavior while Devin writes; test SQLite busy/locking and malformed or partial data. Never treat an incomplete snapshot as current.
 - Establish whether JSON transcript rewrite exists in the relevant Desktop providers, test other supported agents and multiple actively changing sessions, and verify additional hook payloads if needed.
 - Avoid claiming broad Desktop coverage from this single Local version. Later prototype work and its limitations are tracked separately in the P1–P4 progress documents.
+
+
+## Additional M1 evidence
+
+[M1 progress](M1_PROGRESS.md) records a fresh synthetic Desktop Local session with dummy resource references, three observed todo_write plan versions, reported completion/reopening and a completed `/compact`. These extend the tested Local cases only. They do not validate other providers or universal transcript ordering.

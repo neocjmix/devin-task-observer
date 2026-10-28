@@ -9,6 +9,7 @@ import copy
 import math
 import sqlite3
 from pathlib import Path
+from .discovery import extract_resources
 
 
 class SourceIncomplete(Exception):
@@ -176,8 +177,12 @@ def read_sessions(database: Path, workspaces: list[Path]):
                     tool_candidate = data if data.get('role')=='assistant' and isinstance(data.get('tool_calls'),list) and data['tool_calls'] else None
                     by_message[message_id] = (digest, tool_candidate, timing)
                     parents[node_id] = parent
+                    preview=observed_plan_preview(data)
+                    text=data.get('content') if isinstance(data.get('content'),str) else ''
+                    text+='\n'+'\n'.join(item['content'] for plan in preview['plans'] for item in plan['items'])
                     nodes.append({'node_id': node_id, 'parent_id': parent, 'message_id': message_id, 'role': role, 'kinds': observed_kinds(data), 'event_keys': observed_event_keys(data), 'content_hash': digest,
-                        'equivalence_hash':('tpot:'+timing[0]) if timing else ('raw:'+digest)})
+                        'equivalence_hash':('tpot:'+timing[0]) if timing else ('raw:'+digest),
+                        'resources':extract_resources(text), 'plan_preview':preview})
                 cursor, seen = head, set()
                 while cursor is not None and cursor in parents and cursor not in seen:
                     seen.add(cursor)

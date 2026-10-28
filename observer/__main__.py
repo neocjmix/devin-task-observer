@@ -7,6 +7,7 @@ import sqlite3
 import time
 from pathlib import Path
 
+from .discovery import sync_git
 from .devin_local import SourceIncomplete, read_sessions
 from .store import mark_source_unavailable, open_store, sync
 
@@ -42,6 +43,7 @@ def main():
                     raise SourceIncomplete('source replaced while reading')
                 stats = {}
                 count = sync(db, snapshot, args.workspace, identity, stats)
+                sync_git(db,args.workspace)
                 allowed_workspaces = {str(workspace.absolute()) for workspace in args.workspace}
                 stale = sum(1 for status,workspace in db.execute('SELECT status,workspace FROM sessions') if status == 'stale' and workspace in allowed_workspaces)
                 print(json.dumps({'ok': True, 'sessions': len(snapshot), 'transitions': count, 'metadata_changes':stats['metadata_changes'], 'stale_sessions': stale}), flush=True)
@@ -51,11 +53,16 @@ def main():
                     return 2
             except (OSError, sqlite3.Error, SourceIncomplete, ValueError) as error:
                 # Preserve checkpoints; a source failure cannot be treated as fresh.
+                reason=('source_missing' if isinstance(error,FileNotFoundError) else
+                        'source_permission' if isinstance(error,PermissionError) else
+                        'unsupported_schema' if str(error)=='unsupported source schema' else
+                        'invalid_source' if isinstance(error,SourceIncomplete) and str(error)!='source read failed' else
+                        'source_unavailable')
                 try:
-                    mark_source_unavailable(db, args.workspace)
+                    mark_source_unavailable(db, args.workspace, reason)
                 except sqlite3.Error:
                     pass
-                print(json.dumps({'ok': False, 'stage': 'refresh', 'error': type(error).__name__}), flush=True)
+                print(json.dumps({'ok': False, 'stage': 'refresh', 'error': type(error).__name__, 'reason':reason}), flush=True)
                 if args.poll is None:
                     return 2
             finally:

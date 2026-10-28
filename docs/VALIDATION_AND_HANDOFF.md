@@ -34,3 +34,8 @@ Actual Devin Desktop storage locations and schemas across models; stable IDs and
 ## Handoff
 
 Use Codex for generic core/UI/fixtures and personal Devin only for integration probes. Keep external and internal repositories independent. If only documentation may be imported, implement internally from these plans. First deliverable: a read-only probe that reports discovered sessions, formats, change patterns and stable identifiers without retaining message bodies or sending data over the network.
+
+
+## Current M1 handoff
+
+The prototype now implements [M1 — Useful Observer](M1_PROGRESS.md) for the observed Local configuration. The current lightweight entry point and explicit login-startup choice are in the [README](../README.md#local-entry-point). Actual Desktop/browser evidence and fixture-only guarantees are listed separately in the M1 acceptance table. Full transcript reconstruction, external resource status, production scale and other provider support remain outside the validated delivery.

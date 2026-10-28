@@ -25,3 +25,8 @@ The synthetic regression suite covers default-off behavior, no calls on cache hi
 No automatic selection of relevant deltas, multi-event interpretation, affected-item context, non-destructive status proposals, conflicts, configurable reviewed models/budgets, automatic retry, or model quality evaluation exists. Recovery of interrupted runs depends on the per-store lock and the local filesystem honoring its locking semantics. The cache identifies the model by tag rather than content digest, so replacing the model behind that tag does not invalidate an existing result. P1's transcript and ordering limits still apply. Do not use this experiment to infer a verified task status.
 
 Ollama's official [generate API](https://docs.ollama.com/api/generate) documents local generation and returned token counts; its [structured output documentation](https://docs.ollama.com/capabilities/structured-outputs) describes schema-formatted responses. Actual results are nevertheless validated locally and treated as untrusted.
+
+
+## M1 scope note
+
+M1 does not extend this experiment, add providers, alter model choice or enable analysis. Resource discovery, plan projection, live updates and runtime recovery are deterministic and make no LLM calls. The configured M1 development instance has analysis disabled; the M1 work is documented separately in [M1 progress](M1_PROGRESS.md).

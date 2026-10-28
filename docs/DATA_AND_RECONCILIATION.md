@@ -25,3 +25,8 @@ Templates may cover implementation, investigation, design and incident response,
 Inputs: only relevant new normalized events, affected existing ViewItems, the view contract and evidence references. Output: bounded add/update-status/attach-evidence/supersede/propose-section operations. Check expected revision, IDs, evidence, permissions and non-destructive constraints. Rejected patches are retained for diagnosis.
 
 Do not equate agent claims with externally verified completion. PR/ticket status is authoritative only when fetched from approved external API. Never fabricate progress percentages.
+
+
+## Implemented M1 subset
+
+The existing Resource remains the human-confirmed task connection. M1 adds small discovered-resource fact, task-choice and Git-observation tables for candidates/provenance, one plan-record table for the observed structured snapshots, and persisted collector health. It does not implement generic claims, a plugin system or semantic patch reconciliation. Raw transcripts are not archived, but extracted resource values and plan text/status are retained locally as sensitive derived data. See [M1 implementation and validation](M1_PROGRESS.md).

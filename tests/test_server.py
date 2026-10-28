@@ -39,6 +39,12 @@ class ServerTests(unittest.TestCase):
         status,_=self.request('POST','/api/task/create',{'title':'x'},headers={'Origin':'https://evil.example'});self.assertEqual(status,403)
         status,_=self.request('POST','/api/task/create',{'title':'x'},headers={'Content-Type':'text/plain'});self.assertEqual(status,403)
 
+    def test_restart_bootstrap_requires_custom_same_origin_request(self):
+        self.assertEqual(self.request('GET','/api/bootstrap')[0],403)
+        self.assertEqual(self.request('GET','/api/bootstrap',headers={'X-Observer-Bootstrap':'1','Origin':'https://evil.example'})[0],403)
+        status,result=self.request('GET','/api/bootstrap',headers={'X-Observer-Bootstrap':'1','X-Observer-Token':'old-process-token'})
+        self.assertEqual(status,200);self.assertEqual(result['token'],self.server.token)
+
     def test_sessions_outside_workspace_allowlist_are_not_exposed_or_linked(self):
         db=open_store(self.store,self.source)
         with db:db.execute('INSERT INTO sessions VALUES (?,?,?,?,?,?)',('s2','outside','/unapproved',0,'current',1))
@@ -68,6 +74,51 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(len(first['events']),50);self.assertEqual(first['next_offset'],50)
         status,second=self.request('GET','/api/session?id=s1&offset=50');self.assertEqual(status,200)
         self.assertEqual(len(second['events']),11);self.assertIsNone(second['next_offset'])
+
+    def test_m1_projection_is_automatic_scoped_and_uses_no_model(self):
+        source=sqlite3.connect(self.source)
+        raw=json.dumps({'message_id':'m-plan','role':'assistant','content':'OBS-123 https://github.com/example/demo/pull/42 branch: feat/m1',
+            'tool_calls':[{'id':'todo','name':'todo_write','arguments':{'todos':[{'content':'inspect example','status':'pending'}]}}]})
+        source.execute('INSERT INTO message_nodes VALUES (?,?,?,?)',('s1',1,0,raw));source.execute('UPDATE sessions SET main_chain_id=1');source.commit();source.close()
+        self.assertTrue(self.server.refresh()['ok'])
+        _,task=self.request('POST','/api/task/create',{'title':'M1 synthetic'})
+        self.request('POST','/api/link',{'task_id':task['id'],'session_id':'s1'})
+        with patch('observer.semantic.local_generate',side_effect=AssertionError('no model calls')):
+            status,projection=self.request('GET','/api/task-observer?task='+task['id'])
+        self.assertEqual(status,200);pr=next(x for x in projection['resources'] if x['kind']=='pr')
+        self.assertEqual(pr['association'],'candidate');self.assertEqual(pr['external_status'],'unknown');self.assertEqual(pr['number'],42)
+        self.assertEqual(projection['plans'][0]['versions'][0]['items'][0]['content'],'inspect example')
+        self.assertEqual(projection['health'][0]['state'],'readable')
+        status,resource=self.request('POST','/api/resource/confirm',{'task_id':task['id'],'key':pr['key']});self.assertEqual(status,200)
+        _,projection=self.request('GET','/api/task-observer?task='+task['id']);self.assertEqual(next(x for x in projection['resources'] if x['kind']=='pr')['association'],'confirmed')
+        _,other=self.request('POST','/api/task/create',{'title':'Other task'})
+        self.assertEqual(self.request('POST','/api/resource/confirm',{'task_id':other['id'],'key':pr['key']})[0],400)
+        _,state=self.request('GET','/api/state');self.assertIsNotNone(state['collector']['last_success'])
+
+    def test_live_script_is_served_with_local_script_policy(self):
+        c=http.client.HTTPConnection('127.0.0.1',self.server.server_port,timeout=3)
+        c.request('GET','/live.js');r=c.getresponse()
+        self.assertEqual(r.status,200);self.assertIn("script-src 'self'",r.getheader('Content-Security-Policy'))
+        self.assertIn(b'async function refreshOpen',r.read());c.close()
+
+    def test_m1_health_distinguishes_readable_ambiguity_from_failed_source(self):
+        _,task=self.request('POST','/api/task/create',{'title':'Health synthetic'})
+        self.request('POST','/api/link',{'task_id':task['id'],'session_id':'s1'})
+        source=sqlite3.connect(self.source)
+        source.execute('INSERT INTO message_nodes VALUES (?,?,?,?)',('s1',1,0,json.dumps({'message_id':'m1','role':'user','content':'conflicting synthetic'})))
+        source.execute('UPDATE sessions SET main_chain_id=1');source.commit()
+        self.assertTrue(self.server.refresh()['ok'])
+        _,projection=self.request('GET','/api/task-observer?task='+task['id']);self.assertEqual(projection['health'][0]['state'],'readable_ambiguous')
+        db=open_store(self.store,self.source);fingerprint=db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0];db.close()
+        _,before=self.request('GET','/api/state')
+        source.execute("UPDATE message_nodes SET chat_message='broken' WHERE node_id=1");source.commit()
+        self.assertFalse(self.server.refresh()['ok'])
+        _,projection=self.request('GET','/api/task-observer?task='+task['id']);self.assertEqual(projection['health'][0]['state'],'unavailable')
+        _,after=self.request('GET','/api/state');self.assertEqual(after['collector']['last_success'],before['collector']['last_success'])
+        db=open_store(self.store,self.source);self.assertEqual(db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0],fingerprint);db.close()
+        source.execute('DELETE FROM message_nodes WHERE node_id=1');source.execute('UPDATE sessions SET main_chain_id=0');source.commit();source.close()
+        self.assertTrue(self.server.refresh()['ok'])
+        _,projection=self.request('GET','/api/task-observer?task='+task['id']);self.assertEqual(projection['health'][0]['state'],'readable_changed')
 
     def test_session_metadata_and_history_are_workspace_scoped(self):
         source=sqlite3.connect(self.source)

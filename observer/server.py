@@ -1,5 +1,8 @@
 """Loopback-only dashboard for explicitly selected personal workspaces."""
 import argparse
+import fcntl
+import os
+import signal
 import datetime
 import json
 import secrets
@@ -14,10 +17,12 @@ from urllib.parse import parse_qs, urlsplit
 
 from .devin_local import SourceIncomplete, read_evidence, observed_plan_preview
 from .registry import RevisionConflict, add_resource, create_task, link_session, list_tasks, task_resources, task_sessions, update_task, set_link_active, update_resource, update_contribution
-from .store import open_store, acknowledge_structural_change
+from .store import open_store, acknowledge_structural_change, mark_source_unavailable
 from .views import add_item, add_section, attach_evidence, edit_item, ensure_view, get_view, rename_section, reorder_sections, move_item
 from .semantic import create_proposal, list_proposals, apply_proposal, reject_proposal, DAILY_BUDGET
 from .progress import pending_changes, acknowledge_changes, task_attention
+from .discovery import task_candidates, confirm_candidate, task_git_status
+from .plans import task_plans
 
 
 def evidence_response(value):
@@ -52,15 +57,22 @@ class LocalServer(ThreadingHTTPServer):
                 result=subprocess.run(cmd,capture_output=True,text=True,timeout=30)
                 self.refresh_state=json.loads(result.stdout)
             except (OSError, ValueError, subprocess.TimeoutExpired):
-                self.refresh_state={'ok':False,'stage':'refresh_failed'}
+                self.refresh_state={'ok':False,'stage':'refresh_failed','reason':'refresh_timeout_or_failure'}
+                try:
+                    db=open_store(self.store,self.source)
+                    try:mark_source_unavailable(db,self.workspaces,'refresh_timeout_or_failure')
+                    finally:db.close()
+                except (OSError,ValueError,sqlite3.Error):pass
             return self.refresh_state
         finally:
             self.refresh_guard.release()
 
     def poll(self):
+        delay=5
         while not self.stop_event.is_set():
-            self.refresh()
-            self.stop_event.wait(5)
+            result=self.refresh()
+            delay=5 if result.get('ok') else min(60,delay*2)
+            self.stop_event.wait(delay)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -73,7 +85,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', content_type)
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
-        self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'")
+        self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'")
         self.end_headers()
 
     def respond(self, status, value):
@@ -97,6 +109,17 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get('Host') != self.server.origin.removeprefix('http://'):
             return self.respond(403,{'error':'forbidden'})
         target=urlsplit(self.path)
+        if target.path=='/api/bootstrap':
+            # Same-origin JS can recover after a service restart. A foreign
+            # website cannot send this custom header without an allowed CORS
+            # preflight; no CORS is enabled. Other local processes can already
+            # read the token from the homepage, as before.
+            if self.headers.get('X-Observer-Bootstrap')!='1' or self.headers.get('Origin') not in (None,self.server.origin):
+                return self.respond(403,{'error':'forbidden'})
+            return self.respond(200,{'token':self.server.token})
+        if target.path=='/live.js':
+            data=(Path(__file__).parent/'web/live.js').read_bytes()
+            self.headers_safe(200,'text/javascript; charset=utf-8');self.wfile.write(data);return
         if target.path=='/':
             html=(Path(__file__).parent/'web/index.html').read_text().replace('__OBSERVER_TOKEN__',self.server.token)
             temporary=self.server.store.absolute().resolve().is_relative_to(Path('/tmp').resolve())
@@ -116,7 +139,22 @@ class Handler(BaseHTTPRequestHandler):
                 reserved+=db.execute('SELECT COALESCE(SUM(reserved_tokens),0) FROM semantic_retry_attempts WHERE budget_day=?',(day,)).fetchone()[0]
                 tasks=list_tasks(db)
                 for task in tasks:task['attention']=task_attention(db,task['id'],allowed)
-                return self.respond(200,{'tasks':tasks,'sessions':sessions,'refresh':self.server.refresh_state,'local_analysis':self.server.enable_local_analysis,'analysis_budget':{'day_utc':day,'reserved':reserved,'limit':DAILY_BUDGET}})
+                health=db.execute('SELECT last_success,last_attempt,last_error FROM collector_status WHERE singleton=1').fetchone()
+                return self.respond(200,{'tasks':tasks,'sessions':sessions,'refresh':self.server.refresh_state,'collector':dict(zip(('last_success','last_attempt','last_error'),health)) if health else None,'local_analysis':self.server.enable_local_analysis,'analysis_budget':{'day_utc':day,'reserved':reserved,'limit':DAILY_BUDGET}})
+            if target.path=='/api/task-observer':
+                task_id=query.get('task',[''])[0]
+                if not db.execute('SELECT 1 FROM tasks WHERE id=?',(task_id,)).fetchone():return self.respond(404,{'error':'not found'})
+                db.execute('BEGIN')
+                candidates=task_candidates(db,task_id,self.server.workspaces)
+                plans=task_plans(db,task_id,self.server.workspaces)
+                health=[]
+                for sid,title,status,unavailable,ambiguous,structural in db.execute('''SELECT s.id,s.title,s.status,COALESCE(h.source_unavailable,0),COALESCE(v.ambiguous,0),COALESCE(h.structural_stale,0)
+                  FROM sessions s JOIN contributions c ON c.session_id=s.id LEFT JOIN contribution_state cs ON cs.contribution_id=c.id
+                  LEFT JOIN session_health h ON h.session_id=s.id LEFT JOIN session_validation v ON v.session_id=s.id
+                  WHERE c.task_id=? AND COALESCE(cs.active,1)=1''',(task_id,)):
+                    if not self.allowed_session(db,sid):continue
+                    health.append({'session_id':sid,'title':title,'state':'unavailable' if unavailable else 'readable_ambiguous' if ambiguous else 'readable_changed' if structural else 'readable','status':status})
+                return self.respond(200,{'resources':candidates,'plans':plans,'health':health,'git':task_git_status(db,task_id,self.server.workspaces)})
             if target.path=='/api/session':
                 sid=query.get('id',[''])[0]
                 if not self.allowed_session(db,sid):return self.respond(404,{'error':'not found'})
@@ -176,6 +214,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond(200,evidence_response(value))
             if target.path=='/api/task':
                 task_id=query.get('id',[''])[0]
+                db.execute('BEGIN')
+                row=db.execute('SELECT id,title,description,lifecycle,created_at,updated_at,revision FROM tasks WHERE id=?',(task_id,)).fetchone()
+                if not row:return self.respond(404,{'error':'not found'})
+                task=dict(zip(('id','title','description','lifecycle','created_at','updated_at','revision'),row))
                 links=[s for s in task_sessions(db,task_id,include_archived=True) if self.allowed_session(db,s['session_id'])]
                 view=get_view(db,task_id)
                 if view:
@@ -183,7 +225,7 @@ class Handler(BaseHTTPRequestHandler):
                         for item in section['items']:
                             item['evidence']=[e for e in item['evidence'] if self.allowed_session(db,e['session_id'])]
                 proposals=[p for p in list_proposals(db,task_id) if self.allowed_session(db,p['session_id'])]
-                return self.respond(200,{'view':view,'sessions':links,'resources':task_resources(db,task_id,include_archived=True),'proposals':proposals})
+                return self.respond(200,{'task':task,'view':view,'sessions':links,'resources':task_resources(db,task_id,include_archived=True),'proposals':proposals})
             if target.path=='/api/evidence-list':
                 task_id=query.get('task',[''])[0];sid=query.get('session',[''])[0]
                 if not self.allowed_session(db,sid) or not db.execute('SELECT 1 FROM contributions c LEFT JOIN contribution_state cs ON cs.contribution_id=c.id WHERE c.task_id=? AND c.session_id=? AND COALESCE(cs.active,1)=1',(task_id,sid)).fetchone():
@@ -261,6 +303,8 @@ class Handler(BaseHTTPRequestHandler):
                 result={'revision':acknowledge_changes(db,body['task_id'],body['session_id'],body['revision'],body['through_id'])}
             elif target=='/api/resource/add':
                 result={'id':add_resource(db,body['task_id'],body['kind'],body['uri'])}
+            elif target=='/api/resource/confirm':
+                result={'id':confirm_candidate(db,body['task_id'],body['key'],self.server.workspaces)}
             elif target=='/api/resource/edit':
                 result={'revision':update_resource(db,body['task_id'],body['resource_id'],body['revision'],kind=body.get('kind'),uri=body.get('uri'),active=body.get('active'))}
             elif target=='/api/proposal/create':
@@ -315,20 +359,32 @@ class Handler(BaseHTTPRequestHandler):
             if db is not None:db.close()
 
 
-def main():
+def main(argv=None):
     home=Path.home();p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--workspace',action='append',required=True,type=Path)
     p.add_argument('--source',type=Path,default=home/'.local/share/devin/cli/sessions.db')
     p.add_argument('--store',type=Path,default=home/'Library/Application Support/Devin Task Observer/observer.sqlite3')
     p.add_argument('--port',type=int,default=8765)
     p.add_argument('--enable-local-analysis',action='store_true',help='enable manually requested local model suggestions')
-    args=p.parse_args()
+    args=p.parse_args(argv)
     db=open_store(args.store,args.source);db.close()
-    server=LocalServer(('127.0.0.1',args.port),args.source,args.store,args.workspace,args.enable_local_analysis)
+    fd=os.open(str(args.store.absolute().resolve())+'.service.lock',os.O_RDWR|os.O_CREAT|getattr(os,'O_NOFOLLOW',0),0o600)
+    try:fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd);raise ValueError('이 저장소의 Observer가 이미 실행 중입니다.') from None
+    try:server=LocalServer(('127.0.0.1',args.port),args.source,args.store,args.workspace,args.enable_local_analysis)
+    except OSError:
+        os.close(fd);raise
     thread=threading.Thread(target=server.poll,daemon=True);thread.start()
     print('Dashboard listening at '+server.origin,flush=True)
+    def terminate(*_):
+        server.stop_event.set()
+        threading.Thread(target=server.shutdown,daemon=True).start()
+    old=signal.signal(signal.SIGTERM,terminate)
     try:server.serve_forever()
     except KeyboardInterrupt:pass
-    finally:server.stop_event.set();server.server_close();thread.join(timeout=35)
+    finally:
+        server.stop_event.set();server.server_close();thread.join(timeout=35)
+        signal.signal(signal.SIGTERM,old);os.close(fd)
 
 if __name__=='__main__':main()

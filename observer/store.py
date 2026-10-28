@@ -31,6 +31,10 @@ CREATE TABLE IF NOT EXISTS node_kinds (
  session_id TEXT NOT NULL, node_id INTEGER NOT NULL, content_hash TEXT NOT NULL,
  kinds TEXT NOT NULL, PRIMARY KEY(session_id, node_id, content_hash)
 );
+CREATE TABLE IF NOT EXISTS node_equivalence (
+ session_id TEXT NOT NULL, node_id INTEGER NOT NULL, content_hash TEXT NOT NULL,
+ identity_hash TEXT NOT NULL, PRIMARY KEY(session_id,node_id,content_hash)
+);
 CREATE TABLE IF NOT EXISTS events (
  session_id TEXT NOT NULL, message_id TEXT NOT NULL, kind TEXT NOT NULL,
  discriminator TEXT NOT NULL, first_observed_at INTEGER NOT NULL,
@@ -55,6 +59,7 @@ CREATE TABLE IF NOT EXISTS session_metadata_history (
  id INTEGER PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id), model TEXT, backend TEXT,
  agent_mode TEXT, source_created_raw INTEGER, source_activity_raw INTEGER, observed_at INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS session_metadata_history_session ON session_metadata_history(session_id,id);
 CREATE TABLE IF NOT EXISTS recovery_history (
  id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, source_fingerprint TEXT NOT NULL,
  missing_nodes INTEGER NOT NULL, acknowledged_at INTEGER NOT NULL
@@ -178,10 +183,11 @@ def open_store(path: Path, source: Path):
     return db
 
 
-def sync(db, snapshots, workspaces, source_identity=None):
+def sync(db, snapshots, workspaces, source_identity=None, stats=None):
     """Atomically apply a complete source snapshot; retain missing nodes as stale."""
     now = time.time_ns()
     changes = 0
+    metadata_changes = 0
     with db:
         if source_identity is not None:
             previous = db.execute('SELECT device,inode FROM source_identity WHERE singleton=1').fetchone()
@@ -208,10 +214,12 @@ def sync(db, snapshots, workspaces, source_identity=None):
             fields=tuple(metadata.get(k) for k in ('model','backend','agent_mode','source_created_raw','source_activity_raw'))
             previous=db.execute('SELECT model,backend,agent_mode,source_created_raw,source_activity_raw FROM session_metadata WHERE session_id=?',(sid,)).fetchone()
             if previous!=fields:
+                metadata_changes+=1
                 db.execute('INSERT INTO session_metadata_history(session_id,model,backend,agent_mode,source_created_raw,source_activity_raw,observed_at) VALUES (?,?,?,?,?,?,?)',(sid,*fields,now))
                 db.execute('INSERT INTO session_metadata VALUES (?,?,?,?,?,?) ON CONFLICT(session_id) DO UPDATE SET model=excluded.model,backend=excluded.backend,agent_mode=excluded.agent_mode,source_created_raw=excluded.source_created_raw,source_activity_raw=excluded.source_activity_raw',(sid,*fields))
             for node_id, node in current.items():
                 db.execute('INSERT INTO node_kinds VALUES (?,?,?,?) ON CONFLICT(session_id,node_id,content_hash) DO UPDATE SET kinds=excluded.kinds', (sid,node_id,node['content_hash'],json.dumps(node['kinds'])))
+                db.execute('INSERT INTO node_equivalence VALUES (?,?,?,?) ON CONFLICT(session_id,node_id,content_hash) DO UPDATE SET identity_hash=excluded.identity_hash',(sid,node_id,node['content_hash'],node.get('equivalence_hash','raw:'+node['content_hash'])))
                 for kind, discriminator in node['event_keys']:
                     db.execute('INSERT OR IGNORE INTO events VALUES (?,?,?,?,?)', (sid,node['message_id'],kind,discriminator,now))
                     db.execute('INSERT OR IGNORE INTO event_evidence VALUES (?,?,?,?,?,?)', (sid,node['message_id'],kind,discriminator,node_id,node['content_hash']))
@@ -237,6 +245,7 @@ def sync(db, snapshots, workspaces, source_identity=None):
                     db.execute("UPDATE sessions SET status='stale' WHERE id=?", (sid,))
                     db.execute('INSERT INTO session_health VALUES (?,1,0) ON CONFLICT(session_id) DO UPDATE SET structural_stale=1', (sid,))
                     db.execute('UPDATE session_validation SET present=0 WHERE session_id=?',(sid,))
+    if stats is not None:stats['metadata_changes']=metadata_changes
     return changes
 
 

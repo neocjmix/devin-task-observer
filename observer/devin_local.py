@@ -110,6 +110,8 @@ def read_sessions(database: Path, workspaces: list[Path]):
             for sid, title, head, model, backend, mode, created, activity in entries:
                 if not isinstance(sid, str) or not sid:
                     raise SourceIncomplete('invalid session identifier')
+                if title is not None and not isinstance(title,str):
+                    raise SourceIncomplete('invalid session title')
                 if head is not None and not isinstance(head, int):
                     raise SourceIncomplete('invalid active chain head')
                 if any(v is not None and not isinstance(v,str) for v in (model,backend,mode)) or any(v is not None and not isinstance(v,int) for v in (created,activity)):
@@ -145,7 +147,8 @@ def read_sessions(database: Path, workspaces: list[Path]):
                     tool_candidate = data if data.get('role')=='assistant' and isinstance(data.get('tool_calls'),list) and data['tool_calls'] else None
                     by_message[message_id] = (digest, tool_candidate, timing)
                     parents[node_id] = parent
-                    nodes.append({'node_id': node_id, 'parent_id': parent, 'message_id': message_id, 'role': role, 'kinds': observed_kinds(data), 'event_keys': observed_event_keys(data), 'content_hash': digest})
+                    nodes.append({'node_id': node_id, 'parent_id': parent, 'message_id': message_id, 'role': role, 'kinds': observed_kinds(data), 'event_keys': observed_event_keys(data), 'content_hash': digest,
+                        'equivalence_hash':('tpot:'+timing[0]) if timing else ('raw:'+digest)})
                 cursor, seen = head, set()
                 while cursor is not None and cursor in parents and cursor not in seen:
                     seen.add(cursor)

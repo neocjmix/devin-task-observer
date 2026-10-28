@@ -12,6 +12,8 @@ from pathlib import Path
 
 from observer.devin_local import read_sessions, read_evidence, SourceIncomplete, observed_kinds, observed_event_keys
 from observer.store import mark_source_unavailable, open_store, sync, acknowledge_structural_change
+from observer.registry import create_task, link_session
+from observer.progress import pending_changes
 
 
 def message(mid, text, role='user'):
@@ -122,6 +124,7 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0], 2)
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM source_nodes').fetchone()[0], 2)
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM node_kinds').fetchone()[0], 2)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM node_equivalence').fetchone()[0], 2)
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM events').fetchone()[0], 2)
         self.assertEqual(self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0], before)
         self.db.execute('DROP TRIGGER fail_checkpoint'); self.db.commit()
@@ -146,6 +149,13 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0],before)
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0],2)
 
+    def test_invalid_session_title_does_not_replace_good_metadata(self):
+        self.collect();checkpoint=self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0]
+        self.writer.execute('UPDATE sessions SET title=?',(sqlite3.Binary(b'not text'),));self.writer.commit()
+        with self.assertRaises(SourceIncomplete):self.collect()
+        self.assertEqual(self.db.execute('SELECT title FROM sessions').fetchone()[0],'synthetic')
+        self.assertEqual(self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0],checkpoint)
+
     def test_source_file_is_never_a_store(self):
         with self.assertRaises(ValueError): open_store(self.src, self.src)
         with self.assertRaises(ValueError): open_store(self.src.parent / 'other.db', self.src)
@@ -168,6 +178,21 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0], 2)
         self.assertEqual(sync(self.db, snap, [self.work], (1, 11)), 0)
         self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'stale')
+
+    def test_actual_sqlite_file_replacement_is_detected_by_cli(self):
+        store=self.root/'observer'/'observer.db'
+        command=[sys.executable,'-m','observer','--workspace',str(self.work),'--source',str(self.src),'--store',str(store)]
+        first=subprocess.run(command,capture_output=True,text=True,timeout=5)
+        self.assertEqual(first.returncode,0);self.assertEqual(json.loads(first.stdout)['transitions'],2)
+        before=self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0]
+        replacement=self.src.parent/'replacement.db';copy=sqlite3.connect(replacement)
+        self.writer.backup(copy);copy.close();os.replace(replacement,self.src)
+        second=subprocess.run(command,capture_output=True,text=True,timeout=5)
+        self.assertEqual(second.returncode,0);result=json.loads(second.stdout)
+        self.assertEqual((result['transitions'],result['stale_sessions']),(0,1))
+        self.assertEqual(self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0],before)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0],2)
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0],'stale')
 
     def test_unknown_source_version_does_not_advance_checkpoint(self):
         self.collect()
@@ -265,6 +290,19 @@ class CollectorTests(unittest.TestCase):
         with self.assertRaises(SourceIncomplete):self.collect()
         self.assertEqual(self.db.execute('SELECT model,source_activity_raw FROM session_metadata').fetchone(),('third-model',21))
 
+    def test_cli_reports_metadata_only_changes_separately_from_nodes(self):
+        self.writer.execute('ALTER TABLE sessions ADD COLUMN model TEXT')
+        self.writer.execute("UPDATE sessions SET model='before'");self.writer.commit()
+        store=self.root/'observer'/'observer.db'
+        command=[sys.executable,'-m','observer','--workspace',str(self.work),'--source',str(self.src),'--store',str(store)]
+        first=json.loads(subprocess.run(command,capture_output=True,text=True,check=True,timeout=5).stdout)
+        self.assertEqual((first['transitions'],first['metadata_changes']),(2,1))
+        self.writer.execute("UPDATE sessions SET model='after'");self.writer.commit()
+        second=json.loads(subprocess.run(command,capture_output=True,text=True,check=True,timeout=5).stdout)
+        self.assertEqual((second['transitions'],second['metadata_changes']),(0,1))
+        third=json.loads(subprocess.run(command,capture_output=True,text=True,check=True,timeout=5).stdout)
+        self.assertEqual((third['transitions'],third['metadata_changes']),(0,0))
+
     def test_transient_source_failure_recovers_but_structural_stale_does_not(self):
         self.collect()
         mark_source_unavailable(self.db, [self.work])
@@ -340,9 +378,17 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(self.collect(),4);self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0],'current')
         self.assertEqual(self.db.execute("SELECT COUNT(DISTINCT content_hash) FROM source_nodes WHERE message_id='timed-message'").fetchone()[0],2)
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM event_evidence WHERE message_id='timed-message'").fetchone()[0],2)
+        task=create_task(self.db,'Synthetic task');link_session(self.db,task,'one')
+        shown=[(x['node_id'],x['transition']) for x in pending_changes(self.db,task,'one')['changes']]
+        self.assertIn((2,'added'),shown);self.assertNotIn((3,'added'),shown)
+        changed['metadata']['metrics']['tpot_ms']=1.75
+        self.writer.execute('UPDATE message_nodes SET chat_message=? WHERE node_id=3',(json.dumps(changed),));self.writer.commit();self.collect()
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0],'current')
+        self.assertIn((3,'modified'),[(x['node_id'],x['transition']) for x in pending_changes(self.db,task,'one')['changes']])
         changed['metadata']['metrics']['ttft_ms']=16
         self.writer.execute('UPDATE message_nodes SET chat_message=? WHERE node_id=3',(json.dumps(changed),));self.writer.commit();self.collect()
         self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0],'stale')
+        self.assertIn((3,'modified'),[(x['node_id'],x['transition']) for x in pending_changes(self.db,task,'one')['changes']])
 
     def test_reorder_and_disappeared_session_preserve_history(self):
         self.collect()

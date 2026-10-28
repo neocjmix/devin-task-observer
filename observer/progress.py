@@ -5,11 +5,16 @@ from .registry import RevisionConflict
 
 PAGE_SIZE=50
 
-# Only suppress an added node when the exact same message payload was already
-# observed in this session. All raw node observations and references remain.
+# Suppress an added node only for identical payloads or the narrowly verified
+# timing-only variant. All raw node observations and references remain.
 _DISTINCT_OBSERVATIONS = '''NOT (o.transition='added' AND EXISTS (
     SELECT 1 FROM observations p WHERE p.session_id=o.session_id AND p.message_id=o.message_id
-    AND p.content_hash=o.content_hash AND p.id<o.id AND p.transition IN ('added','modified','restored')
+    AND p.id<o.id AND p.transition IN ('added','modified','restored') AND
+    (p.content_hash=o.content_hash OR EXISTS (
+      SELECT 1 FROM node_equivalence a JOIN node_equivalence b ON a.identity_hash=b.identity_hash
+      WHERE a.session_id=o.session_id AND a.node_id=o.node_id AND a.content_hash=o.content_hash
+      AND b.session_id=p.session_id AND b.node_id=p.node_id AND b.content_hash=p.content_hash
+    ))
 ))'''
 
 

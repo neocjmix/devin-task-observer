@@ -116,7 +116,11 @@ class Handler(BaseHTTPRequestHandler):
                 rows=db.execute('''SELECT e.kind,e.message_id,e.discriminator,e.first_observed_at,
                     (SELECT x.node_id FROM event_evidence x LEFT JOIN source_nodes n ON n.session_id=x.session_id AND n.node_id=x.node_id AND n.content_hash=x.content_hash AND n.present=1 WHERE x.session_id=e.session_id AND x.message_id=e.message_id AND x.kind=e.kind AND x.discriminator=e.discriminator ORDER BY (n.node_id IS NOT NULL) DESC,x.node_id,x.content_hash LIMIT 1),
                     (SELECT x.content_hash FROM event_evidence x LEFT JOIN source_nodes n ON n.session_id=x.session_id AND n.node_id=x.node_id AND n.content_hash=x.content_hash AND n.present=1 WHERE x.session_id=e.session_id AND x.message_id=e.message_id AND x.kind=e.kind AND x.discriminator=e.discriminator ORDER BY (n.node_id IS NOT NULL) DESC,x.node_id,x.content_hash LIMIT 1)
-                    FROM events e WHERE e.session_id=? ORDER BY e.first_observed_at,e.message_id,e.kind,e.discriminator LIMIT 51 OFFSET ?''',(sid,offset)).fetchall()
+                    FROM events e WHERE e.session_id=? ORDER BY e.first_observed_at,
+                    COALESCE((SELECT MIN(o.id) FROM event_evidence x JOIN observations o
+                      ON o.session_id=x.session_id AND o.node_id=x.node_id AND o.content_hash=x.content_hash
+                      WHERE x.session_id=e.session_id AND x.message_id=e.message_id AND x.kind=e.kind AND x.discriminator=e.discriminator),9223372036854775807),
+                    e.message_id,e.kind,e.discriminator LIMIT 51 OFFSET ?''',(sid,offset)).fetchall()
                 items=[{'kind':k,'node_id':n,'content_hash':h} for k,_,_,_,n,h in rows[:50]]
                 return self.respond(200,{'id':sid,'title':row[0] or 'Untitled session','status':row[1],'last_seen':row[2],'events':items,'next_offset':offset+50 if len(rows)>50 else None})
             if target.path=='/api/session-chain':

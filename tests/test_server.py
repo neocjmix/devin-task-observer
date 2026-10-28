@@ -69,6 +69,18 @@ class ServerTests(unittest.TestCase):
         status,second=self.request('GET','/api/session?id=s1&offset=50');self.assertEqual(status,200)
         self.assertEqual(len(second['events']),11);self.assertIsNone(second['next_offset'])
 
+    def test_same_snapshot_events_use_observation_order_not_identifier_order(self):
+        db=open_store(self.store,self.source)
+        with db:
+            for mid,node in [('z-first',100),('a-second',101)]:
+                digest='hash-'+mid
+                db.execute('INSERT INTO events VALUES (?,?,?,?,?)',('s1',mid,'unknown','',1))
+                db.execute('INSERT INTO event_evidence VALUES (?,?,?,?,?,?)',('s1',mid,'unknown','',node,digest))
+                db.execute('INSERT INTO observations(session_id,node_id,transition,message_id,role,content_hash,observed_at) VALUES (?,?,?,?,?,?,?)',('s1',node,'added',mid,'unknown',digest,1))
+        db.close()
+        status,result=self.request('GET','/api/session?id=s1');self.assertEqual(status,200)
+        self.assertEqual([e['node_id'] for e in result['events'][:2]],[100,101])
+
     def test_tool_call_arguments_are_read_on_demand_without_body_storage(self):
         source=sqlite3.connect(self.source)
         raw=json.dumps({'message_id':'tool-message','role':'assistant','content':'','tool_calls':[{'id':'call1','name':'read','arguments':'synthetic-only'}]})

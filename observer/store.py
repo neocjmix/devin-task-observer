@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS observations (
 );
 CREATE INDEX IF NOT EXISTS observations_identity ON observations(session_id,message_id,content_hash,id);
 CREATE INDEX IF NOT EXISTS observations_sequence ON observations(session_id,id);
+CREATE INDEX IF NOT EXISTS observations_node_version ON observations(session_id,node_id,content_hash,id);
 CREATE TABLE IF NOT EXISTS checkpoints (
  session_id TEXT PRIMARY KEY, source_fingerprint TEXT NOT NULL, committed_at INTEGER NOT NULL
 );

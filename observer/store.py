@@ -38,6 +38,12 @@ CREATE TABLE IF NOT EXISTS event_evidence (
  discriminator TEXT NOT NULL, node_id INTEGER NOT NULL, content_hash TEXT NOT NULL,
  PRIMARY KEY(session_id, message_id, kind, discriminator, node_id, content_hash)
 );
+CREATE TABLE IF NOT EXISTS session_health (
+ session_id TEXT PRIMARY KEY, structural_stale INTEGER NOT NULL, source_unavailable INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS source_identity (
+ singleton INTEGER PRIMARY KEY CHECK(singleton=1), device INTEGER NOT NULL, inode INTEGER NOT NULL
+);
 '''
 
 
@@ -46,7 +52,7 @@ def open_store(path: Path, source: Path):
     source = source.absolute().resolve()
     if target == source or target.is_relative_to(source.parent):
         raise ValueError('observer store must be outside the source directory')
-    if target.exists() and os.path.samefile(target, source):
+    if target.exists() and source.exists() and os.path.samefile(target, source):
         raise ValueError('observer store must be distinct from source')
     target.parent.mkdir(parents=True, exist_ok=True)
     if not target.exists():
@@ -54,14 +60,22 @@ def open_store(path: Path, source: Path):
         os.close(fd)
     db = sqlite3.connect(target)
     db.executescript(SCHEMA)
+    with db:
+        db.execute("INSERT OR IGNORE INTO session_health SELECT id, CASE WHEN status='stale' THEN 1 ELSE 0 END, 0 FROM sessions")
     return db
 
 
-def sync(db, snapshots, workspaces):
+def sync(db, snapshots, workspaces, source_identity=None):
     """Atomically apply a complete source snapshot; retain missing nodes as stale."""
     now = time.time_ns()
     changes = 0
     with db:
+        if source_identity is not None:
+            previous = db.execute('SELECT device,inode FROM source_identity WHERE singleton=1').fetchone()
+            if previous is not None and tuple(previous) != tuple(source_identity):
+                db.execute("UPDATE sessions SET status='stale'")
+                db.execute('INSERT INTO session_health SELECT id,1,0 FROM sessions WHERE true ON CONFLICT(session_id) DO UPDATE SET structural_stale=1')
+            db.execute('INSERT INTO source_identity VALUES (1,?,?) ON CONFLICT(singleton) DO UPDATE SET device=excluded.device,inode=excluded.inode', source_identity)
         ids = set()
         for session in snapshots:
             sid = session['id']
@@ -70,8 +84,10 @@ def sync(db, snapshots, workspaces):
             current = {n['node_id']: n for n in session['nodes']}
             missing = set(existing) - set(current)
             identity_change = any(n in existing and (existing[n][0] != v['parent_id'] or existing[n][1] != v['message_id']) for n, v in current.items())
-            previous_status = db.execute('SELECT status FROM sessions WHERE id=?', (sid,)).fetchone()
-            status = 'stale' if missing or session['ambiguous'] or identity_change or (previous_status and previous_status[0] == 'stale') else 'pending' if session['head'] is None else 'current'
+            previous_health = db.execute('SELECT structural_stale FROM session_health WHERE session_id=?', (sid,)).fetchone()
+            structural_stale = bool(missing or session['ambiguous'] or identity_change or (previous_health and previous_health[0]))
+            status = 'stale' if structural_stale else 'pending' if session['head'] is None else 'current'
+            db.execute('INSERT INTO session_health VALUES (?,?,0) ON CONFLICT(session_id) DO UPDATE SET structural_stale=excluded.structural_stale,source_unavailable=0', (sid,int(structural_stale)))
             db.execute('INSERT INTO sessions VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title, workspace=excluded.workspace, head=excluded.head, status=excluded.status, last_seen=excluded.last_seen', (sid, session['title'], session['workspace'], session['head'], status, now))
             for node_id, node in current.items():
                 db.execute('INSERT INTO node_kinds VALUES (?,?,?,?) ON CONFLICT(session_id,node_id,content_hash) DO UPDATE SET kinds=excluded.kinds', (sid,node_id,node['content_hash'],json.dumps(node['kinds'])))
@@ -98,4 +114,15 @@ def sync(db, snapshots, workspaces):
             for (sid,) in db.execute('SELECT id FROM sessions WHERE workspace=?', (workspace,)).fetchall():
                 if sid not in ids:
                     db.execute("UPDATE sessions SET status='stale' WHERE id=?", (sid,))
+                    db.execute('INSERT INTO session_health VALUES (?,1,0) ON CONFLICT(session_id) DO UPDATE SET structural_stale=1', (sid,))
     return changes
+
+
+def mark_source_unavailable(db, workspaces):
+    """Keep prior checkpoints but flag them until a complete snapshot returns."""
+    with db:
+        for workspace in set(str(Path(p).absolute()) for p in workspaces):
+            ids = [r[0] for r in db.execute('SELECT id FROM sessions WHERE workspace=?', (workspace,))]
+            for sid in ids:
+                db.execute('INSERT INTO session_health VALUES (?,0,1) ON CONFLICT(session_id) DO UPDATE SET source_unavailable=1', (sid,))
+                db.execute("UPDATE sessions SET status='stale' WHERE id=?", (sid,))

@@ -8,8 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from observer.devin_local import read_sessions, SourceIncomplete, observed_kinds, observed_event_keys
-from observer.store import open_store, sync
+from observer.devin_local import read_sessions, read_evidence, SourceIncomplete, observed_kinds, observed_event_keys
+from observer.store import mark_source_unavailable, open_store, sync
 
 
 def message(mid, text, role='user'):
@@ -71,6 +71,16 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT transition FROM observations ORDER BY id DESC LIMIT 1').fetchone()[0], 'restored')
         self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'stale')
 
+    def test_compaction_like_new_root_retains_old_events_and_evidence(self):
+        self.collect()
+        self.writer.execute('INSERT INTO message_nodes VALUES(?,?,?,?,?)',(3,'one',2,None,message('summary','synthetic summary','system')))
+        self.writer.execute('UPDATE sessions SET main_chain_id=2'); self.writer.commit()
+        self.assertEqual(self.collect(), 1)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM events').fetchone()[0], 3)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM event_evidence').fetchone()[0], 3)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM source_nodes WHERE present=1').fetchone()[0], 3)
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'current')
+
     def test_checkpoint_and_observations_roll_back_together(self):
         self.collect()
         before = self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0]
@@ -102,6 +112,15 @@ class CollectorTests(unittest.TestCase):
         with self.assertRaises(ValueError): open_store(self.src, self.src)
         with self.assertRaises(ValueError): open_store(self.src.parent / 'other.db', self.src)
 
+    def test_source_replacement_marks_existing_history_stale(self):
+        snap = read_sessions(self.src, [self.work])
+        sync(self.db, snap, [self.work], (1, 10))
+        self.assertEqual(sync(self.db, snap, [self.work], (1, 11)), 0)
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'stale')
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0], 2)
+        self.assertEqual(sync(self.db, snap, [self.work], (1, 11)), 0)
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'stale')
+
     def test_unknown_source_version_does_not_advance_checkpoint(self):
         self.collect()
         before = self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0]
@@ -119,6 +138,31 @@ class CollectorTests(unittest.TestCase):
             self.assertEqual(self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0], before)
         finally:
             self.writer.rollback()
+
+    def test_transient_source_failure_recovers_but_structural_stale_does_not(self):
+        self.collect()
+        mark_source_unavailable(self.db, [self.work])
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'stale')
+        self.assertEqual(self.collect(), 0)
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'current')
+        self.writer.execute('DELETE FROM message_nodes WHERE node_id=1')
+        self.writer.execute('UPDATE sessions SET main_chain_id=0'); self.writer.commit()
+        self.collect()
+        mark_source_unavailable(self.db, [self.work])
+        self.collect()
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'stale')
+
+    def test_missing_source_cli_marks_stale_and_recovers(self):
+        self.collect()
+        store = self.root / 'observer' / 'observer.db'
+        missing = self.root / 'missing' / 'sessions.db'
+        cmd = [sys.executable, '-m', 'observer', '--workspace', str(self.work), '--source', str(missing), '--store', str(store)]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(json.loads(result.stdout)['stage'], 'refresh')
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'stale')
+        self.assertEqual(self.collect(), 0)
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'current')
 
     def test_concurrent_cli_refresh_is_rejected_without_checkpoint_change(self):
         self.collect()
@@ -184,6 +228,16 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(observed_event_keys({'role':'assistant','tool_calls':[{'id':'a','name':'read'},{'id':'b','name':'read'}]}), [('tool_call','a'),('tool_call','b')])
         self.assertEqual(observed_event_keys({'role':'tool','tool_call_id':'t'}), [('tool_result','t')])
         self.assertEqual(observed_event_keys({'role':'assistant','tool_calls':[{'name':'read'}]}), [('unknown','')])
+
+    def test_evidence_is_read_only_scoped_and_hash_checked(self):
+        self.collect()
+        digest = self.db.execute('SELECT content_hash FROM source_nodes WHERE node_id=0').fetchone()[0]
+        self.assertEqual(read_evidence(self.src, self.work, 'one', 0, digest)['content'], 'one')
+        with self.assertRaises(SourceIncomplete):
+            read_evidence(self.src, self.root / 'other', 'one', 0, digest)
+        self.writer.execute('UPDATE message_nodes SET chat_message=? WHERE node_id=0', (message('a','two'),)); self.writer.commit()
+        with self.assertRaises(SourceIncomplete):
+            read_evidence(self.src, self.work, 'one', 0, digest)
 
     def test_killed_process_during_checkpoint_rolls_back(self):
         self.collect()

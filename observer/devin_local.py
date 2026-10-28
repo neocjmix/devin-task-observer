@@ -132,3 +132,32 @@ def read_sessions(database: Path, workspaces: list[Path]):
         raise SourceIncomplete('source read failed') from error
     finally:
         db.close()
+
+
+def read_evidence(database: Path, workspace: Path, session_id: str, node_id: int, expected_hash: str):
+    """Return source JSON only if its workspace, identity and hash still match.
+
+    The caller handles sensitive data. Older versions cannot be recovered if
+    the source no longer retains them; return an error instead of guessing.
+    """
+    db = sqlite3.connect(database.absolute().as_uri() + '?mode=ro', uri=True, timeout=0.25)
+    try:
+        db.execute('PRAGMA query_only=ON')
+        db.execute('BEGIN')
+        version = db.execute('SELECT max(version) FROM refinery_schema_history').fetchone()[0]
+        if version != 17:
+            raise SourceIncomplete('unsupported source schema')
+        row = db.execute('SELECT n.chat_message FROM message_nodes n JOIN sessions s ON s.id=n.session_id WHERE s.working_directory=? AND n.session_id=? AND n.node_id=?', (str(workspace.absolute()), session_id, node_id)).fetchone()
+        if row is None or not isinstance(row[0], str):
+            raise SourceIncomplete('evidence missing')
+        if hashlib.sha256(row[0].encode('utf-8')).hexdigest() != expected_hash:
+            raise SourceIncomplete('evidence changed')
+        result = json.loads(row[0])
+        if not isinstance(result, dict):
+            raise SourceIncomplete('invalid evidence')
+        db.rollback()
+        return result
+    except (sqlite3.Error, ValueError) as error:
+        raise SourceIncomplete('evidence read failed') from error
+    finally:
+        db.close()

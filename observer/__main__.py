@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from .devin_local import SourceIncomplete, read_sessions
-from .store import open_store, sync
+from .store import mark_source_unavailable, open_store, sync
 
 
 def main():
@@ -30,15 +30,19 @@ def main():
         return 2
     try:
         while True:
+            locked = False
             try:
                 fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                try:
-                    snapshot = read_sessions(args.source, args.workspace)
-                    count = sync(db, snapshot, args.workspace)
-                    stale = db.execute("SELECT COUNT(*) FROM sessions WHERE status='stale'").fetchone()[0]
-                    print(json.dumps({'ok': True, 'sessions': len(snapshot), 'transitions': count, 'stale_sessions': stale}), flush=True)
-                finally:
-                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                locked = True
+                before = args.source.stat()
+                snapshot = read_sessions(args.source, args.workspace)
+                after = args.source.stat()
+                identity = (before.st_dev, before.st_ino)
+                if identity != (after.st_dev, after.st_ino):
+                    raise SourceIncomplete('source replaced while reading')
+                count = sync(db, snapshot, args.workspace, identity)
+                stale = db.execute("SELECT COUNT(*) FROM sessions WHERE status='stale'").fetchone()[0]
+                print(json.dumps({'ok': True, 'sessions': len(snapshot), 'transitions': count, 'stale_sessions': stale}), flush=True)
             except BlockingIOError:
                 print(json.dumps({'ok': False, 'stage': 'lock', 'error': 'busy'}), flush=True)
                 if args.poll is None:
@@ -46,14 +50,15 @@ def main():
             except (OSError, sqlite3.Error, SourceIncomplete, ValueError) as error:
                 # Preserve checkpoints; a source failure cannot be treated as fresh.
                 try:
-                    with db:
-                        for workspace in args.workspace:
-                            db.execute("UPDATE sessions SET status='stale' WHERE workspace=?", (str(workspace.absolute()),))
+                    mark_source_unavailable(db, args.workspace)
                 except sqlite3.Error:
                     pass
                 print(json.dumps({'ok': False, 'stage': 'refresh', 'error': type(error).__name__}), flush=True)
                 if args.poll is None:
                     return 2
+            finally:
+                if locked:
+                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
             if args.poll is None:
                 return 0
             time.sleep(args.poll)

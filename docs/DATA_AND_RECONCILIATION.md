@@ -30,3 +30,18 @@ Do not equate agent claims with externally verified completion. PR/ticket status
 ## Implemented M1 subset
 
 The existing Resource remains the human-confirmed task connection. M1 adds small discovered-resource fact, task-choice and Git-observation tables for candidates/provenance, one plan-record table for the observed structured snapshots, and persisted collector health. It does not implement generic claims, a plugin system or semantic patch reconciliation. Raw transcripts are not archived, but extracted resource values and plan text/status are retained locally as sensitive derived data. See [M1 implementation and validation](M1_PROGRESS.md).
+
+
+## M2 normative semantic state protocol
+
+The **Task** is the unit of semantic reconciliation; one task may draw from many sessions, and one session may contribute to several tasks. Maintain distinct collector and semantic cursors per task/session contribution. Source reordering, compaction or missing evidence must not silently advance semantic progress.
+
+Input is a bounded delta bundle with stable evidence references, provenance, affected view items and the current per-task View Contract. Structured extraction precedes model interpretation. For ambiguous order, provide explicit uncertainty rather than inventing chronology. The model proposes *operations*, not a rewritten document.
+
+Supported conceptual operations: add evidence-backed item, update machine-owned item status, attach evidence, supersede machine-owned claim, propose new section, flag contradiction and no-change. The Core checks item IDs, expected revision, source scope, evidence availability, ownership, conflict policy and deduplication key. Machine-generated material is stored separately from human-owned items; a user correction becomes authoritative for that item until explicitly changed by the user. Never delete, overwrite pinned content or silently reconcile contradictions.
+
+Use deterministic idempotency keys tied to task, source delta identity, view revision and operation identity. Commit accepted effects and semantic cursor transactionally. On rejection or failure, retain pending delta and explicit semantic staleness; do not claim freshness. A no-change result may advance the cursor only when durably recorded. Previously interpreted facts may need retraction when their source changes: mark disputed/superseded, do not erase history.
+
+Policy: safe additive evidence-backed updates can auto-apply to machine-owned projection. Human approval is reserved for view structure changes, destructive effects, uncertain conflict resolution and changes to human-authored content. Confidence scores alone never constitute verification. A claim's evidence may be agent-reported rather than independently verified; keep this distinction in UI.
+
+Cost: zero-token reads; no LLM for unchanged input; manual semantic refresh first; per-task/daily hard budgets; cache by relevant delta + view revision + model/prompt version; persist usage and freshness. The current P4 single-node Ollama proposal is a plumbing experiment, **not** this protocol.

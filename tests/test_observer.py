@@ -10,7 +10,7 @@ import time
 import unittest
 from pathlib import Path
 
-from observer.devin_local import read_sessions, read_evidence, SourceIncomplete, observed_kinds, observed_event_keys
+from observer.devin_local import read_sessions, read_evidence, SourceIncomplete, observed_kinds, observed_event_keys, observed_plan_preview
 from observer.store import mark_source_unavailable, open_store, sync, acknowledge_structural_change
 from observer.registry import create_task, link_session
 from observer.progress import pending_changes
@@ -364,10 +364,14 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM source_nodes').fetchone()[0], 4)
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM events WHERE kind='tool_call'").fetchone()[0], 1)
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM event_evidence WHERE kind='tool_call'").fetchone()[0], 2)
+        task=create_task(self.db,'Synthetic task');link_session(self.db,task,'one')
+        shown=[(x['node_id'],x['transition']) for x in pending_changes(self.db,task,'one')['changes']]
+        self.assertIn((2,'added'),shown);self.assertIn((3,'added'),shown)
         changed = json.loads(json.dumps(updated)); changed['content'] = 'different'
         self.writer.execute('UPDATE message_nodes SET chat_message=? WHERE node_id=3',(json.dumps(changed),)); self.writer.commit()
         self.collect()
         self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'stale')
+        self.assertIn((3,'modified'),[(x['node_id'],x['transition']) for x in pending_changes(self.db,task,'one')['changes']])
 
     def test_observed_timing_only_variant_preserves_nodes_without_false_ambiguity(self):
         base={'message_id':'timed-message','role':'assistant','content':'synthetic answer','metadata':{'metrics':{'tpot_ms':1.25,'ttft_ms':15}}}
@@ -413,6 +417,19 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(observed_event_keys({'role':'assistant','tool_calls':[{'id':'a','name':'read'},{'id':'b','name':'read'}]}), [('tool_call','a'),('tool_call','b')])
         self.assertEqual(observed_event_keys({'role':'tool','tool_call_id':'t'}), [('tool_result','t')])
         self.assertEqual(observed_event_keys({'role':'assistant','tool_calls':[{'name':'read'}]}), [('unknown','')])
+
+    def test_plan_preview_reads_only_the_observed_shape_without_inference(self):
+        message={'role':'assistant','tool_calls':[{'id':'plan-1','name':'todo_write','arguments':{'todos':[{'content':'inspect example','status':'pending'},{'content':'report example','status':'unrecognized-state'}]}}]}
+        result=observed_plan_preview(message)
+        self.assertFalse(result['unsupported']);self.assertEqual(result['plans'][0]['tool_call_id'],'plan-1')
+        self.assertEqual(result['plans'][0]['items'][1],{'content':'report example','source_status':'unrecognized-state'})
+        malformed=json.loads(json.dumps(message));malformed['tool_calls'][0]['arguments']['todos'][1]['extra']='unexpected'
+        self.assertEqual(observed_plan_preview(malformed),{'plans':[],'unsupported':True})
+        malformed=json.loads(json.dumps(message));malformed['tool_calls'][0]['arguments']='not observed'
+        self.assertEqual(observed_plan_preview(malformed),{'plans':[],'unsupported':True})
+        duplicated={'role':'assistant','tool_calls':[message['tool_calls'][0],message['tool_calls'][0]]}
+        self.assertEqual(observed_plan_preview(duplicated),{'plans':[],'unsupported':True})
+        self.assertEqual(observed_plan_preview({'role':'user','tool_calls':message['tool_calls']}),{'plans':[],'unsupported':False})
 
     def test_evidence_is_read_only_scoped_and_hash_checked(self):
         self.collect()

@@ -12,7 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from .devin_local import SourceIncomplete, read_evidence
+from .devin_local import SourceIncomplete, read_evidence, observed_plan_preview
 from .registry import RevisionConflict, add_resource, create_task, link_session, list_tasks, task_resources, task_sessions, update_task, set_link_active, update_resource, update_contribution
 from .store import open_store, acknowledge_structural_change
 from .views import add_item, add_section, attach_evidence, edit_item, ensure_view, get_view, rename_section, reorder_sections, move_item
@@ -165,7 +165,7 @@ class Handler(BaseHTTPRequestHandler):
                 value=read_evidence(self.server.source,Path(workspace),sid,node,digest)
                 content=value.get('content')
                 calls=value.get('tool_calls')
-                return self.respond(200,{'content':content if isinstance(content,str) else '', 'tool_calls':calls if isinstance(calls,list) else [], 'role':value.get('role','unknown'), 'notice':'Raw source content may contain injected context.'})
+                return self.respond(200,{'content':content if isinstance(content,str) else '', 'tool_calls':calls if isinstance(calls,list) else [], 'plan_preview':observed_plan_preview(value), 'role':value.get('role','unknown'), 'notice':'Raw source content may contain injected context.'})
             if target.path=='/api/task':
                 task_id=query.get('id',[''])[0]
                 links=[s for s in task_sessions(db,task_id,include_archived=True) if self.allowed_session(db,s['session_id'])]
@@ -196,7 +196,7 @@ class Handler(BaseHTTPRequestHandler):
                 value=read_evidence(self.server.source,Path(row[0]),sid,node,digest)
                 content=value.get('content')
                 calls=value.get('tool_calls')
-                return self.respond(200,{'content':content if isinstance(content,str) else '', 'tool_calls':calls if isinstance(calls,list) else [], 'role':value.get('role','unknown'), 'notice':'Raw source content may contain injected context.'})
+                return self.respond(200,{'content':content if isinstance(content,str) else '', 'tool_calls':calls if isinstance(calls,list) else [], 'plan_preview':observed_plan_preview(value), 'role':value.get('role','unknown'), 'notice':'Raw source content may contain injected context.'})
             return self.respond(404,{'error':'not found'})
         except (ValueError,KeyError,sqlite3.Error,SourceIncomplete,OSError):
             return self.respond(400,{'error':'unable to read data'})

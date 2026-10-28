@@ -91,6 +91,35 @@ def observed_event_keys(message):
     return sorted(set(result)) or [('unknown', '')]
 
 
+def observed_plan_preview(message):
+    """Read the single structured todo shape observed in the synthetic test.
+
+    Status strings are source claims, never a verified completion state. Any
+    unexpected todo shape is reported unsupported rather than partly parsed.
+    """
+    calls=message.get('tool_calls')
+    if message.get('role')!='assistant' or not isinstance(calls,list):
+        return {'plans':[],'unsupported':False}
+    plans=[];seen=set()
+    for call in calls:
+        if not isinstance(call,dict) or call.get('name')!='todo_write':continue
+        call_id=call.get('id');args=call.get('arguments')
+        if not isinstance(call_id,str) or not call_id or call_id in seen or not isinstance(args,dict) or set(args)!={'todos'}:
+            return {'plans':[],'unsupported':True}
+        todos=args['todos']
+        if not isinstance(todos,list) or not 1<=len(todos)<=100:
+            return {'plans':[],'unsupported':True}
+        items=[]
+        for todo in todos:
+            if (not isinstance(todo,dict) or set(todo)!={'content','status'} or
+                not isinstance(todo['content'],str) or not todo['content'].strip() or len(todo['content'])>10000 or
+                not isinstance(todo['status'],str) or not todo['status'] or len(todo['status'])>100):
+                return {'plans':[],'unsupported':True}
+            items.append({'content':todo['content'],'source_status':todo['status']})
+        seen.add(call_id);plans.append({'tool_call_id':call_id,'items':items})
+    return {'plans':plans,'unsupported':False}
+
+
 def read_sessions(database: Path, workspaces: list[Path]):
     if not workspaces:
         raise ValueError('at least one explicit personal workspace is required')

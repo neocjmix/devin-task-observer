@@ -105,6 +105,16 @@ class ServerTests(unittest.TestCase):
         self.assertNotIn('synthetic-only',str(db.execute('SELECT * FROM source_nodes').fetchall()))
         db.close()
 
+    def test_plan_preview_is_evidence_linked_and_preserves_source_status(self):
+        source=sqlite3.connect(self.source)
+        raw=json.dumps({'message_id':'plan-message','role':'assistant','content':'','tool_calls':[{'id':'call-plan','name':'todo_write','arguments':{'todos':[{'content':'synthetic step','status':'pending'}]}}]})
+        source.execute('INSERT INTO message_nodes VALUES (?,?,?,?)',('s1',1,0,raw))
+        source.execute('UPDATE sessions SET main_chain_id=1');source.commit();source.close();self.assertTrue(self.server.refresh()['ok'])
+        digest=hashlib.sha256(raw.encode()).hexdigest()
+        status,result=self.request('GET',f'/api/session-evidence?session=s1&node=1&hash={digest}')
+        self.assertEqual(status,200);self.assertEqual(result['plan_preview']['plans'][0]['items'],[{'content':'synthetic step','source_status':'pending'}])
+        self.assertEqual(self.request('GET','/api/session-evidence?session=s1&node=1&hash=wrong')[0],404)
+
     def test_active_chain_uses_parent_order_and_excludes_branches(self):
         db=open_store(self.store,self.source)
         with db:

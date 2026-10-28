@@ -1,4 +1,6 @@
 import json
+import fcntl
+import os
 import sqlite3
 import subprocess
 import sys
@@ -6,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from observer.devin_local import read_sessions, SourceIncomplete, observed_kinds
+from observer.devin_local import read_sessions, SourceIncomplete, observed_kinds, observed_event_keys
 from observer.store import open_store, sync
 
 
@@ -81,6 +83,7 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0], 2)
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM source_nodes').fetchone()[0], 2)
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM node_kinds').fetchone()[0], 2)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM events').fetchone()[0], 2)
         self.assertEqual(self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0], before)
         self.db.execute('DROP TRIGGER fail_checkpoint'); self.db.commit()
         self.assertEqual(self.collect(),1)
@@ -117,6 +120,22 @@ class CollectorTests(unittest.TestCase):
         finally:
             self.writer.rollback()
 
+    def test_concurrent_cli_refresh_is_rejected_without_checkpoint_change(self):
+        self.collect()
+        store = self.root / 'observer' / 'observer.db'
+        lock = store.with_suffix('.db.lock')
+        fd = os.open(lock, os.O_CREAT | os.O_RDWR, 0o600)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            previous = self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0]
+            result = subprocess.run([sys.executable, '-m', 'observer', '--workspace', str(self.work), '--source', str(self.src), '--store', str(store)], capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(json.loads(result.stdout)['stage'], 'lock')
+            self.assertEqual(self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0], previous)
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+
     def test_duplicate_rows_and_sqlite_rowid_rewrite_do_not_replay(self):
         self.writer.execute('INSERT INTO message_nodes VALUES(?,?,?,?,?)', (3,'one',2,1,message('a','one')))
         self.writer.execute('UPDATE sessions SET main_chain_id=2'); self.writer.commit()
@@ -135,6 +154,8 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(self.collect(), 4)
         self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'current')
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM source_nodes').fetchone()[0], 4)
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM events WHERE kind='tool_call'").fetchone()[0], 1)
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM event_evidence WHERE kind='tool_call'").fetchone()[0], 2)
         changed = json.loads(json.dumps(updated)); changed['content'] = 'different'
         self.writer.execute('UPDATE message_nodes SET chat_message=? WHERE node_id=3',(json.dumps(changed),)); self.writer.commit()
         self.collect()
@@ -155,9 +176,14 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(observed_kinds({'role':'user','metadata':{'is_user_input':True}}), ['user'])
         self.assertEqual(observed_kinds({'role':'user','metadata':{}}), ['unknown'])
         self.assertEqual(observed_kinds({'role':'assistant','content':'text','tool_calls':[{}]}), ['assistant','tool_call'])
+        self.assertEqual(observed_kinds({'role':'assistant','content':'','tool_calls':[{'name':'todo_write'}]}), ['tool_call','plan'])
         self.assertEqual(observed_kinds({'role':'tool','tool_call_id':'call'}), ['tool_result'])
         self.assertEqual(observed_kinds({'role':'tool'}), ['unknown'])
         self.assertEqual(observed_kinds({'role':'plan'}), ['unknown'])
+        self.assertEqual(observed_event_keys({'role':'assistant','tool_calls':[{'id':'t','name':'todo_write'}]}), [('plan','t'),('tool_call','t')])
+        self.assertEqual(observed_event_keys({'role':'assistant','tool_calls':[{'id':'a','name':'read'},{'id':'b','name':'read'}]}), [('tool_call','a'),('tool_call','b')])
+        self.assertEqual(observed_event_keys({'role':'tool','tool_call_id':'t'}), [('tool_result','t')])
+        self.assertEqual(observed_event_keys({'role':'assistant','tool_calls':[{'name':'read'}]}), [('unknown','')])
 
     def test_killed_process_during_checkpoint_rolls_back(self):
         self.collect()

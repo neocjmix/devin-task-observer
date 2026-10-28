@@ -52,10 +52,29 @@ def observed_kinds(message):
             kinds.append('assistant')
         if isinstance(message.get('tool_calls'), list) and message['tool_calls']:
             kinds.append('tool_call')
+            if any(isinstance(call, dict) and call.get('name') == 'todo_write' for call in message['tool_calls']):
+                kinds.append('plan')
         return kinds or ['unknown']
     if role == 'tool' and isinstance(message.get('tool_call_id'), str) and message['tool_call_id']:
         return ['tool_result']
     return ['unknown']
+
+
+def observed_event_keys(message):
+    """Return conservative event types and tool discriminators, without text."""
+    kinds = observed_kinds(message)
+    result = [(k, '') for k in kinds if k not in ('tool_call', 'tool_result', 'plan')]
+    if 'tool_call' in kinds:
+        for call in message['tool_calls']:
+            if not isinstance(call, dict) or not isinstance(call.get('id'), str) or not call['id']:
+                result.append(('unknown', ''))
+                continue
+            result.append(('tool_call', call['id']))
+            if call.get('name') == 'todo_write':
+                result.append(('plan', call['id']))
+    if 'tool_result' in kinds:
+        result.append(('tool_result', message['tool_call_id']))
+    return sorted(set(result)) or [('unknown', '')]
 
 
 def read_sessions(database: Path, workspaces: list[Path]):
@@ -99,7 +118,7 @@ def read_sessions(database: Path, workspaces: list[Path]):
                             ambiguous = True
                     by_message[message_id] = (digest, data)
                     parents[node_id] = parent
-                    nodes.append({'node_id': node_id, 'parent_id': parent, 'message_id': message_id, 'role': role, 'kinds': observed_kinds(data), 'content_hash': digest})
+                    nodes.append({'node_id': node_id, 'parent_id': parent, 'message_id': message_id, 'role': role, 'kinds': observed_kinds(data), 'event_keys': observed_event_keys(data), 'content_hash': digest})
                 cursor, seen = head, set()
                 while cursor is not None and cursor in parents and cursor not in seen:
                     seen.add(cursor)

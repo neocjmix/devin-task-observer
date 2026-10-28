@@ -28,6 +28,16 @@ CREATE TABLE IF NOT EXISTS node_kinds (
  session_id TEXT NOT NULL, node_id INTEGER NOT NULL, content_hash TEXT NOT NULL,
  kinds TEXT NOT NULL, PRIMARY KEY(session_id, node_id, content_hash)
 );
+CREATE TABLE IF NOT EXISTS events (
+ session_id TEXT NOT NULL, message_id TEXT NOT NULL, kind TEXT NOT NULL,
+ discriminator TEXT NOT NULL, first_observed_at INTEGER NOT NULL,
+ PRIMARY KEY(session_id, message_id, kind, discriminator)
+);
+CREATE TABLE IF NOT EXISTS event_evidence (
+ session_id TEXT NOT NULL, message_id TEXT NOT NULL, kind TEXT NOT NULL,
+ discriminator TEXT NOT NULL, node_id INTEGER NOT NULL, content_hash TEXT NOT NULL,
+ PRIMARY KEY(session_id, message_id, kind, discriminator, node_id, content_hash)
+);
 '''
 
 
@@ -65,6 +75,9 @@ def sync(db, snapshots, workspaces):
             db.execute('INSERT INTO sessions VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title, workspace=excluded.workspace, head=excluded.head, status=excluded.status, last_seen=excluded.last_seen', (sid, session['title'], session['workspace'], session['head'], status, now))
             for node_id, node in current.items():
                 db.execute('INSERT INTO node_kinds VALUES (?,?,?,?) ON CONFLICT(session_id,node_id,content_hash) DO UPDATE SET kinds=excluded.kinds', (sid,node_id,node['content_hash'],json.dumps(node['kinds'])))
+                for kind, discriminator in node['event_keys']:
+                    db.execute('INSERT OR IGNORE INTO events VALUES (?,?,?,?,?)', (sid,node['message_id'],kind,discriminator,now))
+                    db.execute('INSERT OR IGNORE INTO event_evidence VALUES (?,?,?,?,?,?)', (sid,node['message_id'],kind,discriminator,node_id,node['content_hash']))
                 old = existing.get(node_id)
                 fresh = (node['parent_id'], node['message_id'], node['role'], node['content_hash'], 1)
                 if old != fresh:

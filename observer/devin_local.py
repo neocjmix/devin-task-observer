@@ -95,12 +95,14 @@ def read_sessions(database: Path, workspaces: list[Path]):
                     raise SourceIncomplete('invalid session identifier')
                 if head is not None and not isinstance(head, int):
                     raise SourceIncomplete('invalid active chain head')
-                rows = db.execute('SELECT node_id, parent_node_id, chat_message FROM message_nodes WHERE session_id = ? ORDER BY node_id', (sid,)).fetchall()
+                rows = db.execute('SELECT node_id, parent_node_id, chat_message FROM message_nodes WHERE session_id = ? ORDER BY node_id', (sid,))
                 nodes = []
                 parents = {}
                 by_message = {}
                 ambiguous = False
+                has_rows = False
                 for node_id, parent, raw in rows:
+                    has_rows = True
                     if (not isinstance(node_id, int) or node_id in parents or
                         (parent is not None and not isinstance(parent, int)) or not isinstance(raw, str)):
                         raise SourceIncomplete('invalid node')
@@ -117,16 +119,17 @@ def read_sessions(database: Path, workspaces: list[Path]):
                     digest = hashlib.sha256(raw.encode('utf-8')).hexdigest()
                     if message_id in by_message:
                         previous_digest, previous_data = by_message[message_id]
-                        if previous_digest != digest and not observed_tool_revision(previous_data, data):
+                        if previous_digest != digest and (previous_data is None or not observed_tool_revision(previous_data, data)):
                             ambiguous = True
-                    by_message[message_id] = (digest, data)
+                    tool_candidate = data if data.get('role')=='assistant' and isinstance(data.get('tool_calls'),list) and data['tool_calls'] else None
+                    by_message[message_id] = (digest, tool_candidate)
                     parents[node_id] = parent
                     nodes.append({'node_id': node_id, 'parent_id': parent, 'message_id': message_id, 'role': role, 'kinds': observed_kinds(data), 'event_keys': observed_event_keys(data), 'content_hash': digest})
                 cursor, seen = head, set()
                 while cursor is not None and cursor in parents and cursor not in seen:
                     seen.add(cursor)
                     cursor = parents[cursor]
-                if (head is None and rows) or cursor is not None:
+                if (head is None and has_rows) or cursor is not None:
                     raise SourceIncomplete('missing or cyclic active chain')
                 sessions.append({'id': sid, 'title': title, 'workspace': workdir, 'head': head, 'nodes': nodes, 'ambiguous': ambiguous})
         db.rollback()

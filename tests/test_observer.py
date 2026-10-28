@@ -229,6 +229,16 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual([sid for sid in checkpoints if checkpoints[sid]!=updated[sid]],['synthetic-5'])
         self.assertEqual(self.collect(),0)
 
+    def test_large_synthetic_nodes_are_indexed_without_storing_bodies(self):
+        marker='synthetic-large-body-'+'x'*32768
+        for i in range(2,66):
+            self.writer.execute('INSERT INTO message_nodes(session_id,node_id,parent_node_id,chat_message) VALUES (?,?,?,?)',('one',i,i-1,message('large-'+str(i),marker,'assistant')))
+        self.writer.execute('UPDATE sessions SET main_chain_id=65');self.writer.commit()
+        snapshot=read_sessions(self.src,[self.work]);self.assertEqual(len(snapshot[0]['nodes']),66)
+        self.assertNotIn(marker,str(snapshot))
+        self.assertEqual(sync(self.db,snapshot,[self.work]),66);self.assertEqual(self.collect(),0)
+        self.assertNotIn(marker.encode(),(self.root/'observer'/'observer.db').read_bytes())
+
     def test_transient_source_failure_recovers_but_structural_stale_does_not(self):
         self.collect()
         mark_source_unavailable(self.db, [self.work])

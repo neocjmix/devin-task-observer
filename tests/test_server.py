@@ -9,6 +9,7 @@ from unittest.mock import patch
 from pathlib import Path
 from observer.server import LocalServer
 from observer.store import open_store
+from observer.registry import link_session
 
 
 class ServerTests(unittest.TestCase):
@@ -49,6 +50,11 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(status,400)
         status,_=self.request('GET','/api/session?id=s2')
         self.assertEqual(status,404)
+        db=open_store(self.store,self.source);link_session(db,created['id'],'s2')
+        with db:db.execute("INSERT INTO observations(session_id,node_id,transition,message_id,role,content_hash,observed_at) VALUES ('s2',1,'added','m','user','h',1)")
+        db.close()
+        _,state=self.request('GET','/api/state')
+        self.assertEqual(state['tasks'][0]['attention'],{'pending_changes':0,'stale_sessions':0,'linked_sessions':0})
 
     def test_session_event_pagination_is_explicit_and_complete(self):
         db=open_store(self.store,self.source)
@@ -133,6 +139,18 @@ class ServerTests(unittest.TestCase):
         status,_=self.request('POST','/api/proposal/apply',{'task_id':task,'proposal_id':proposal['proposal_id'],'view_id':view['id'],'section_id':section,'revision':view['revision']});self.assertEqual(status,200)
         _,detail=self.request('GET','/api/task?id='+task);self.assertEqual(detail['view']['sections'][0]['items'][0]['origin'],'local_model');self.assertEqual(detail['proposals'][0]['status'],'accepted')
 
+    def test_changed_source_cannot_be_used_to_accept_an_old_proposal(self):
+        _,created=self.request('POST','/api/task/create',{'title':'synthetic task'});task=created['id']
+        self.request('POST','/api/link',{'task_id':task,'session_id':'s1'});self.server.enable_local_analysis=True
+        digest=hashlib.sha256(self.raw.encode()).hexdigest()
+        with patch('observer.semantic.local_generate',return_value={'done':True,'done_reason':'stop','prompt_eval_count':100,'eval_count':20,'response':'{"suggestion":"Synthetic candidate"}'}):
+            _,proposal=self.request('POST','/api/proposal/create',{'task_id':task,'session_id':'s1','node_id':0,'content_hash':digest})
+        _,detail=self.request('GET','/api/task?id='+task);view=detail['view']
+        source=sqlite3.connect(self.source);source.execute("UPDATE message_nodes SET chat_message='{}' WHERE node_id=0");source.commit();source.close()
+        status,_=self.request('POST','/api/proposal/apply',{'task_id':task,'proposal_id':proposal['proposal_id'],'view_id':view['id'],'section_id':view['sections'][0]['id'],'revision':view['revision']})
+        self.assertEqual(status,400)
+        _,detail=self.request('GET','/api/task?id='+task);self.assertEqual(detail['view']['sections'][0]['items'],[]);self.assertEqual(detail['proposals'][0]['status'],'pending')
+
     def test_recovery_requires_fresh_snapshot_and_retains_history(self):
         source=sqlite3.connect(self.source)
         source.execute('INSERT INTO message_nodes VALUES (?,?,?,?)',('s1',1,0,json.dumps({'message_id':'m2','role':'assistant','content':'synthetic reply'})))
@@ -169,6 +187,22 @@ class ServerTests(unittest.TestCase):
         self.assertEqual((detail['sessions'][0]['role'],detail['sessions'][0]['scope'],detail['sessions'][0]['confidence']),('investigation','synthetic only',.7))
         body['task_id']='other';body['revision']=2
         status,_=self.request('POST','/api/link/edit',body);self.assertEqual(status,400)
+
+    def test_task_observation_review_is_independent_over_http(self):
+        _,a=self.request('POST','/api/task/create',{'title':'Task A'})
+        _,b=self.request('POST','/api/task/create',{'title':'Task B'})
+        self.request('POST','/api/link',{'task_id':a['id'],'session_id':'s1'})
+        self.request('POST','/api/link',{'task_id':b['id'],'session_id':'s1'})
+        status,changes=self.request('GET','/api/task/changes?task='+a['id']+'&session=s1');self.assertEqual(status,200)
+        change=changes['changes'][0]
+        self.assertEqual(change['kinds'],['user'])
+        body={'task_id':a['id'],'session_id':'s1','revision':changes['revision'],'through_id':change['id']}
+        status,_=self.request('POST','/api/task/changes/acknowledge',body);self.assertEqual(status,200)
+        status,_=self.request('POST','/api/task/changes/acknowledge',body);self.assertEqual(status,409)
+        _,a_changes=self.request('GET','/api/task/changes?task='+a['id']+'&session=s1')
+        _,b_changes=self.request('GET','/api/task/changes?task='+b['id']+'&session=s1')
+        self.assertEqual(a_changes['changes'],[]);self.assertEqual(len(b_changes['changes']),1)
+        status,_=self.request('GET','/api/task/changes?task='+a['id']+'&session=unknown');self.assertEqual(status,404)
 
     def test_task_session_view_and_hash_checked_evidence_flow(self):
         status,session=self.request('GET','/api/session?id=s1');self.assertEqual(status,200);self.assertEqual(len(session['events']),1);self.assertEqual(session['events'][0]['kind'],'user')

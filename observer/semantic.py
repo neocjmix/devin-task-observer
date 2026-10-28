@@ -115,6 +115,7 @@ def apply_proposal(db,task_id,proposal_id,view_id,section_id,expected_revision):
         if not row or row[1]!='pending':raise ValueError('proposal is unavailable')
         if not db.execute('SELECT 1 FROM task_views v JOIN view_sections s ON s.view_id=v.id WHERE v.id=? AND v.task_id=? AND s.id=?',(view_id,task_id,section_id)).fetchone():raise ValueError('section unavailable')
         if not db.execute('SELECT 1 FROM contributions c LEFT JOIN contribution_state cs ON cs.contribution_id=c.id WHERE c.task_id=? AND c.session_id=? AND COALESCE(cs.active,1)=1',(task_id,row[2])).fetchone():raise ValueError('source session is no longer linked')
+        if not db.execute("SELECT 1 FROM sessions s JOIN source_nodes n ON n.session_id=s.id WHERE s.id=? AND s.status='current' AND n.node_id=? AND n.content_hash=? AND n.present=1",(row[2],row[3],row[4])).fetchone():raise ValueError('source evidence is stale or changed')
         revision=_bump(db,view_id,expected_revision)
         iid=str(uuid.uuid4());now=time.time_ns()
         position=db.execute('SELECT COALESCE(MAX(position),-1)+1 FROM view_items WHERE section_id=?',(section_id,)).fetchone()[0]

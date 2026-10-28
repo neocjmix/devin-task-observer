@@ -17,6 +17,7 @@ from .registry import RevisionConflict, add_resource, create_task, link_session,
 from .store import open_store, acknowledge_structural_change
 from .views import add_item, add_section, attach_evidence, edit_item, ensure_view, get_view, rename_section, reorder_sections, move_item
 from .semantic import create_proposal, list_proposals, apply_proposal, reject_proposal, DAILY_BUDGET
+from .progress import pending_changes, acknowledge_changes, task_attention
 
 
 class LocalServer(ThreadingHTTPServer):
@@ -97,11 +98,14 @@ class Handler(BaseHTTPRequestHandler):
         try:
             db=open_store(self.server.store,self.server.source)
             if target.path=='/api/state':
+                db.execute('BEGIN')
                 allowed={str(w.absolute()) for w in self.server.workspaces}
                 sessions=[{'id':r[0],'title':r[1] or 'Untitled session','status':r[2], 'last_seen':r[4], 'task_count':r[5]} for r in db.execute('SELECT s.id,s.title,s.status,s.workspace,s.last_seen,(SELECT COUNT(*) FROM contributions c LEFT JOIN contribution_state cs ON cs.contribution_id=c.id WHERE c.session_id=s.id AND COALESCE(cs.active,1)=1) FROM sessions s ORDER BY s.last_seen DESC,s.id') if r[3] in allowed]
                 day=datetime.datetime.now(datetime.timezone.utc).date().isoformat()
                 reserved=db.execute('SELECT COALESCE(SUM(reserved_tokens),0) FROM semantic_runs WHERE budget_day=?',(day,)).fetchone()[0]
-                return self.respond(200,{'tasks':list_tasks(db),'sessions':sessions,'refresh':self.server.refresh_state,'local_analysis':self.server.enable_local_analysis,'analysis_budget':{'day_utc':day,'reserved':reserved,'limit':DAILY_BUDGET}})
+                tasks=list_tasks(db)
+                for task in tasks:task['attention']=task_attention(db,task['id'],allowed)
+                return self.respond(200,{'tasks':tasks,'sessions':sessions,'refresh':self.server.refresh_state,'local_analysis':self.server.enable_local_analysis,'analysis_budget':{'day_utc':day,'reserved':reserved,'limit':DAILY_BUDGET}})
             if target.path=='/api/session':
                 sid=query.get('id',[''])[0]
                 if not self.allowed_session(db,sid):return self.respond(404,{'error':'not found'})
@@ -165,6 +169,10 @@ class Handler(BaseHTTPRequestHandler):
                     return self.respond(404,{'error':'not found'})
                 rows=db.execute('SELECT n.node_id,n.role,n.content_hash,n.present,k.kinds FROM source_nodes n LEFT JOIN node_kinds k ON k.session_id=n.session_id AND k.node_id=n.node_id AND k.content_hash=n.content_hash WHERE n.session_id=? ORDER BY n.node_id',(sid,)).fetchall()
                 return self.respond(200,{'nodes':[{'node_id':n,'role':role,'content_hash':h,'present':bool(p),'kinds':json.loads(k) if k else ['unknown']} for n,role,h,p,k in rows]})
+            if target.path=='/api/task/changes':
+                task_id=query.get('task',[''])[0];sid=query.get('session',[''])[0]
+                if not self.allowed_session(db,sid):return self.respond(404,{'error':'not found'})
+                return self.respond(200,pending_changes(db,task_id,sid))
             if target.path=='/api/evidence':
                 task_id=query.get('task',[''])[0];sid=query.get('session',[''])[0];node=int(query.get('node',['-1'])[0]);digest=query.get('hash',[''])[0]
                 row=db.execute('SELECT s.workspace FROM sessions s JOIN contributions c ON c.session_id=s.id WHERE c.task_id=? AND s.id=?',(task_id,sid)).fetchone()
@@ -229,6 +237,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not row or not self.allowed_session(db,row[0]):raise ValueError('link unavailable')
                 fields={k:body[k] for k in ('role','scope','confidence') if k in body}
                 result={'revision':update_contribution(db,body['task_id'],body['link_id'],body['revision'],**fields)}
+            elif target=='/api/task/changes/acknowledge':
+                if not self.allowed_session(db,body['session_id']):raise ValueError('session unavailable')
+                result={'revision':acknowledge_changes(db,body['task_id'],body['session_id'],body['revision'],body['through_id'])}
             elif target=='/api/resource/add':
                 result={'id':add_resource(db,body['task_id'],body['kind'],body['uri'])}
             elif target=='/api/resource/edit':
@@ -237,8 +248,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not self.server.enable_local_analysis or not self.allowed_session(db,body['session_id']):raise ValueError('local analysis disabled or out of scope')
                 result=create_proposal(db,self.server.source,body['task_id'],body['session_id'],body['node_id'],body['content_hash'])
             elif target=='/api/proposal/apply':
-                row=db.execute('SELECT r.session_id FROM semantic_proposals p JOIN semantic_runs r ON r.id=p.run_id WHERE p.id=? AND r.task_id=?',(body['proposal_id'],body['task_id'])).fetchone()
+                row=db.execute('SELECT r.session_id,r.node_id,r.content_hash,s.workspace FROM semantic_proposals p JOIN semantic_runs r ON r.id=p.run_id JOIN sessions s ON s.id=r.session_id WHERE p.id=? AND r.task_id=?',(body['proposal_id'],body['task_id'])).fetchone()
                 if not row or not self.allowed_session(db,row[0]):raise ValueError('proposal out of scope')
+                read_evidence(self.server.source,Path(row[3]),row[0],row[1],row[2])
                 result={'revision':apply_proposal(db,body['task_id'],body['proposal_id'],body['view_id'],body['section_id'],body['revision'])}
             elif target=='/api/proposal/reject':
                 row=db.execute('SELECT r.session_id FROM semantic_proposals p JOIN semantic_runs r ON r.id=p.run_id WHERE p.id=? AND r.task_id=?',(body['proposal_id'],body['task_id'])).fetchone()

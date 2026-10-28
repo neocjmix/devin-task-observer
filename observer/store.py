@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS observations (
  transition TEXT NOT NULL, message_id TEXT NOT NULL, role TEXT NOT NULL,
  content_hash TEXT NOT NULL, observed_at INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS observations_identity ON observations(session_id,message_id,content_hash,id);
+CREATE INDEX IF NOT EXISTS observations_sequence ON observations(session_id,id);
 CREATE TABLE IF NOT EXISTS checkpoints (
  session_id TEXT PRIMARY KEY, source_fingerprint TEXT NOT NULL, committed_at INTEGER NOT NULL
 );
@@ -76,6 +78,14 @@ CREATE TABLE IF NOT EXISTS contribution_history (
 CREATE TABLE IF NOT EXISTS contribution_metadata_history (
  id INTEGER PRIMARY KEY, contribution_id TEXT NOT NULL REFERENCES contributions(id),
  role TEXT NOT NULL, scope TEXT NOT NULL, confidence REAL, revision INTEGER NOT NULL, saved_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS task_session_progress (
+ task_id TEXT NOT NULL REFERENCES tasks(id), session_id TEXT NOT NULL REFERENCES sessions(id),
+ last_observation_id INTEGER NOT NULL, revision INTEGER NOT NULL, PRIMARY KEY(task_id,session_id)
+);
+CREATE TABLE IF NOT EXISTS task_progress_history (
+ id INTEGER PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), session_id TEXT NOT NULL REFERENCES sessions(id),
+ last_observation_id INTEGER NOT NULL, revision INTEGER NOT NULL, acknowledged_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS resource_state (
  resource_id TEXT PRIMARY KEY REFERENCES resources(id), active INTEGER NOT NULL, revision INTEGER NOT NULL

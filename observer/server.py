@@ -109,6 +109,23 @@ class Handler(BaseHTTPRequestHandler):
                     FROM events e WHERE e.session_id=? ORDER BY e.first_observed_at,e.message_id,e.kind,e.discriminator LIMIT 51 OFFSET ?''',(sid,offset)).fetchall()
                 items=[{'kind':k,'node_id':n,'content_hash':h} for k,_,_,_,n,h in rows[:50]]
                 return self.respond(200,{'id':sid,'title':row[0] or 'Untitled session','status':row[1],'last_seen':row[2],'events':items,'next_offset':offset+50 if len(rows)>50 else None})
+            if target.path=='/api/session-chain':
+                sid=query.get('id',[''])[0]
+                if not self.allowed_session(db,sid):return self.respond(404,{'error':'not found'})
+                offset=int(query.get('offset',['0'])[0])
+                if offset<0 or offset>10000000:raise ValueError('invalid offset')
+                db.execute('BEGIN')
+                session=db.execute('SELECT title,status,last_seen,head FROM sessions WHERE id=?',(sid,)).fetchone()
+                rows=db.execute('SELECT n.node_id,n.parent_id,n.content_hash,k.kinds FROM source_nodes n LEFT JOIN node_kinds k ON k.session_id=n.session_id AND k.node_id=n.node_id AND k.content_hash=n.content_hash WHERE n.session_id=? AND n.present=1',(sid,)).fetchall()
+                nodes={r[0]:r for r in rows};chain=[];seen=set();cursor=session[3]
+                if cursor is None and rows:raise ValueError('active chain unavailable')
+                while cursor is not None:
+                    if cursor in seen or cursor not in nodes:raise ValueError('invalid active chain')
+                    seen.add(cursor);node=nodes[cursor];kinds=json.loads(node[3]) if node[3] else ['unknown']
+                    if not isinstance(kinds,list) or not all(isinstance(k,str) for k in kinds):raise ValueError('invalid labels')
+                    chain.append({'node_id':node[0],'content_hash':node[2],'kinds':kinds});cursor=node[1]
+                chain.reverse()
+                return self.respond(200,{'id':sid,'title':session[0] or 'Untitled session','status':session[1],'last_seen':session[2],'nodes':chain[offset:offset+50],'next_offset':offset+50 if len(chain)>offset+50 else None,'total':len(chain),'excluded_nodes':len(nodes)-len(chain)})
             if target.path=='/api/session-evidence':
                 sid=query.get('session',[''])[0];node=int(query.get('node',['-1'])[0]);digest=query.get('hash',[''])[0]
                 if not self.allowed_session(db,sid) or not db.execute('SELECT 1 FROM event_evidence WHERE session_id=? AND node_id=? AND content_hash=?',(sid,node,digest)).fetchone():

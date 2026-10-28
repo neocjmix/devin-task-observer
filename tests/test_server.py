@@ -62,6 +62,33 @@ class ServerTests(unittest.TestCase):
         status,second=self.request('GET','/api/session?id=s1&offset=50');self.assertEqual(status,200)
         self.assertEqual(len(second['events']),11);self.assertIsNone(second['next_offset'])
 
+    def test_active_chain_uses_parent_order_and_excludes_branches(self):
+        db=open_store(self.store,self.source)
+        with db:
+            db.execute('UPDATE sessions SET head=2 WHERE id=?',('s1',))
+            db.execute('INSERT INTO source_nodes VALUES (?,?,?,?,?,?,?)',('s1',2,0,'m2','assistant','hash2',1))
+            db.execute('INSERT INTO source_nodes VALUES (?,?,?,?,?,?,?)',('s1',1,0,'branch','assistant','branchhash',1))
+            db.execute('INSERT INTO node_kinds VALUES (?,?,?,?)',('s1',2,'hash2','["assistant"]'))
+            db.execute('INSERT INTO node_kinds VALUES (?,?,?,?)',('s1',1,'branchhash','["assistant"]'))
+        db.close()
+        status,chain=self.request('GET','/api/session-chain?id=s1')
+        self.assertEqual(status,200);self.assertEqual([n['node_id'] for n in chain['nodes']],[0,2]);self.assertEqual(chain['excluded_nodes'],1)
+        db=open_store(self.store,self.source)
+        with db:db.execute('UPDATE source_nodes SET parent_id=2 WHERE session_id=? AND node_id=0',('s1',))
+        db.close()
+        status,_=self.request('GET','/api/session-chain?id=s1');self.assertEqual(status,400)
+
+    def test_active_chain_pagination(self):
+        db=open_store(self.store,self.source)
+        with db:
+            for i in range(1,61):
+                db.execute('INSERT INTO source_nodes VALUES (?,?,?,?,?,?,?)',('s1',i,i-1,'m'+str(i),'assistant','h'+str(i),1))
+            db.execute('UPDATE sessions SET head=60 WHERE id=?',('s1',))
+        db.close()
+        status,first=self.request('GET','/api/session-chain?id=s1');self.assertEqual(status,200)
+        self.assertEqual([n['node_id'] for n in first['nodes']],list(range(50)));self.assertEqual(first['next_offset'],50)
+        _,last=self.request('GET','/api/session-chain?id=s1&offset=50');self.assertEqual([n['node_id'] for n in last['nodes']],list(range(50,61)));self.assertIsNone(last['next_offset'])
+
     def test_archive_restore_link_and_resource_with_conflicts(self):
         _,created=self.request('POST','/api/task/create',{'title':'synthetic task'});task=created['id']
         _,link=self.request('POST','/api/link',{'task_id':task,'session_id':'s1'})

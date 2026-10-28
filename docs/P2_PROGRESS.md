@@ -12,7 +12,7 @@ The registry is local Python/SQLite task-core functionality. P1 remains in progr
 
 ## Validation
 
-- The full synthetic test suite passes 42 tests, including registry tests for the two-way many-to-many case, invalid references, idempotent links, resource history, link restoration, migration from existing records, lifecycle changes, and protection from stale edits.
+- The full synthetic test suite passes 44 tests, including registry tests for the two-way many-to-many case, invalid references, idempotent links, resource history, link restoration, migration from existing records, lifecycle changes, and protection from stale edits.
 - A live integration against the three **synthetic** Desktop sessions created two synthetic tasks and linked two sessions to one task, with one session linked to both tasks. Results were verified from the private local test store.
 
 ## Remaining

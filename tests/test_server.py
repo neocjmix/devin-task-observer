@@ -5,6 +5,7 @@ import sqlite3
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from observer.server import LocalServer
 from observer.store import open_store
@@ -103,6 +104,37 @@ class ServerTests(unittest.TestCase):
         status,_=self.request('POST','/api/link/state',{'task_id':task,'link_id':link['id'],'revision':2,'active':True});self.assertEqual(status,200)
         status,_=self.request('POST','/api/resource/edit',{'task_id':task,'resource_id':rid,'revision':2,'active':False});self.assertEqual(status,200)
         status,_=self.request('POST','/api/resource/edit',{'task_id':task,'resource_id':rid,'revision':3,'active':True});self.assertEqual(status,200)
+
+    def test_local_proposals_are_disabled_by_default_and_require_review(self):
+        _,created=self.request('POST','/api/task/create',{'title':'synthetic task'});task=created['id']
+        self.request('POST','/api/link',{'task_id':task,'session_id':'s1'})
+        digest=hashlib.sha256(self.raw.encode()).hexdigest()
+        request={'task_id':task,'session_id':'s1','node_id':0,'content_hash':digest}
+        status,_=self.request('POST','/api/proposal/create',request);self.assertEqual(status,400)
+        db=open_store(self.store,self.source);self.assertEqual(db.execute('SELECT COUNT(*) FROM semantic_runs').fetchone()[0],0);db.close()
+        self.server.enable_local_analysis=True
+        with patch('observer.semantic.local_generate',return_value={'done':True,'done_reason':'stop','prompt_eval_count':100,'eval_count':20,'response':'{"suggestion":"Synthetic candidate"}'}) as model:
+            status,proposal=self.request('POST','/api/proposal/create',request);self.assertEqual(status,200)
+            status,cached=self.request('POST','/api/proposal/create',request);self.assertTrue(cached['cached']);self.assertEqual(model.call_count,1)
+        _,detail=self.request('GET','/api/task?id='+task);view=detail['view'];section=view['sections'][0]['id']
+        self.assertEqual(view['sections'][0]['items'],[])
+        status,_=self.request('POST','/api/proposal/apply',{'task_id':task,'proposal_id':proposal['proposal_id'],'view_id':view['id'],'section_id':section,'revision':view['revision']});self.assertEqual(status,200)
+        _,detail=self.request('GET','/api/task?id='+task);self.assertEqual(detail['view']['sections'][0]['items'][0]['origin'],'local_model');self.assertEqual(detail['proposals'][0]['status'],'accepted')
+
+    def test_recovery_requires_fresh_snapshot_and_retains_history(self):
+        source=sqlite3.connect(self.source)
+        source.execute('INSERT INTO message_nodes VALUES (?,?,?,?)',('s1',1,0,json.dumps({'message_id':'m2','role':'assistant','content':'synthetic reply'})))
+        source.execute('UPDATE sessions SET main_chain_id=1');source.commit();self.server.refresh()
+        source.execute('DELETE FROM message_nodes WHERE node_id=1');source.execute('UPDATE sessions SET main_chain_id=0');source.commit();self.server.refresh()
+        _,recovery=self.request('GET','/api/session-recovery?id=s1');self.assertTrue(recovery['eligible']);self.assertEqual(recovery['missing_nodes'],1)
+        old=recovery['fingerprint']
+        source.execute('INSERT INTO message_nodes VALUES (?,?,?,?)',('s1',2,0,json.dumps({'message_id':'m3','role':'assistant','content':'new synthetic reply'})))
+        source.execute('UPDATE sessions SET main_chain_id=2');source.commit()
+        status,_=self.request('POST','/api/session/acknowledge',{'session_id':'s1','fingerprint':old});self.assertEqual(status,400)
+        _,recovery=self.request('GET','/api/session-recovery?id=s1');self.assertTrue(recovery['eligible'])
+        status,_=self.request('POST','/api/session/acknowledge',{'session_id':'s1','fingerprint':recovery['fingerprint']});self.assertEqual(status,200)
+        self.server.refresh();_,state=self.request('GET','/api/state');self.assertEqual(state['sessions'][0]['status'],'current')
+        db=open_store(self.store,self.source);self.assertEqual(db.execute('SELECT present FROM source_nodes WHERE node_id=1').fetchone()[0],0);self.assertGreaterEqual(db.execute('SELECT COUNT(*) FROM observations').fetchone()[0],4);db.close();source.close()
 
     def test_task_session_view_and_hash_checked_evidence_flow(self):
         status,session=self.request('GET','/api/session?id=s1');self.assertEqual(status,200);self.assertEqual(len(session['events']),1);self.assertEqual(session['events'][0]['kind'],'user')

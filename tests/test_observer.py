@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 from observer.devin_local import read_sessions, read_evidence, SourceIncomplete, observed_kinds, observed_event_keys
-from observer.store import mark_source_unavailable, open_store, sync
+from observer.store import mark_source_unavailable, open_store, sync, acknowledge_structural_change
 
 
 def message(mid, text, role='user'):
@@ -71,6 +71,33 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT transition FROM observations ORDER BY id DESC LIMIT 1').fetchone()[0], 'restored')
         self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'stale')
 
+    def test_explicit_recovery_preserves_history_and_detects_new_divergence(self):
+        self.collect()
+        self.writer.execute('DELETE FROM message_nodes WHERE node_id=1')
+        self.writer.execute('UPDATE sessions SET main_chain_id=0');self.writer.commit();self.collect()
+        fingerprint=self.db.execute('SELECT source_fingerprint FROM checkpoints WHERE session_id=?',('one',)).fetchone()[0]
+        with self.assertRaises(ValueError):acknowledge_structural_change(self.db,'one','0'*64)
+        acknowledge_structural_change(self.db,'one',fingerprint)
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0],'current')
+        self.assertEqual(self.collect(),0)
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0],'current')
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0],3)
+        self.assertEqual(self.db.execute('SELECT present FROM source_nodes WHERE node_id=1').fetchone()[0],0)
+        self.assertEqual(self.db.execute('SELECT missing_nodes FROM recovery_history').fetchone()[0],1)
+        self.writer.execute('INSERT INTO message_nodes VALUES (?,?,?,?,?)',(4,'one',2,0,message('new','fresh')))
+        self.writer.execute('UPDATE sessions SET main_chain_id=2');self.writer.commit();self.collect()
+        self.writer.execute('DELETE FROM message_nodes WHERE node_id=2')
+        self.writer.execute('UPDATE sessions SET main_chain_id=0');self.writer.commit();self.collect()
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0],'stale')
+
+    def test_recovery_rejects_ambiguous_or_disappeared_source(self):
+        self.writer.execute('INSERT INTO message_nodes VALUES(?,?,?,?,?)',(3,'one',2,1,message('a','different')))
+        self.writer.execute('UPDATE sessions SET main_chain_id=2');self.writer.commit();self.collect()
+        fingerprint=self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0]
+        with self.assertRaises(ValueError):acknowledge_structural_change(self.db,'one',fingerprint)
+        self.writer.execute('DELETE FROM sessions');self.writer.commit();self.collect()
+        with self.assertRaises(ValueError):acknowledge_structural_change(self.db,'one',fingerprint)
+
     def test_compaction_like_new_root_retains_old_events_and_evidence(self):
         self.collect()
         self.writer.execute('INSERT INTO message_nodes VALUES(?,?,?,?,?)',(3,'one',2,None,message('summary','synthetic summary','system')))
@@ -107,6 +134,15 @@ class CollectorTests(unittest.TestCase):
         self.writer.execute("UPDATE message_nodes SET chat_message='{' WHERE node_id=2"); self.writer.commit()
         with self.assertRaises(SourceIncomplete): self.collect()
         self.assertEqual(self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0], before)
+
+    def test_duplicate_node_identity_does_not_advance_checkpoint(self):
+        self.collect()
+        before=self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0]
+        self.writer.execute('INSERT INTO message_nodes VALUES(?,?,?,?,?)',(3,'one',1,0,message('other','conflicting row')))
+        self.writer.commit()
+        with self.assertRaises(SourceIncomplete):self.collect()
+        self.assertEqual(self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0],before)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0],2)
 
     def test_source_file_is_never_a_store(self):
         with self.assertRaises(ValueError): open_store(self.src, self.src)

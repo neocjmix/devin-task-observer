@@ -41,6 +41,13 @@ CREATE TABLE IF NOT EXISTS event_evidence (
 CREATE TABLE IF NOT EXISTS session_health (
  session_id TEXT PRIMARY KEY, structural_stale INTEGER NOT NULL, source_unavailable INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS session_validation (
+ session_id TEXT PRIMARY KEY, ambiguous INTEGER NOT NULL, present INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS recovery_history (
+ id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, source_fingerprint TEXT NOT NULL,
+ missing_nodes INTEGER NOT NULL, acknowledged_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS source_identity (
  singleton INTEGER PRIMARY KEY CHECK(singleton=1), device INTEGER NOT NULL, inode INTEGER NOT NULL
 );
@@ -95,6 +102,17 @@ CREATE TABLE IF NOT EXISTS item_evidence (
  node_id INTEGER NOT NULL, content_hash TEXT NOT NULL,
  PRIMARY KEY(item_id,session_id,node_id,content_hash)
 );
+CREATE TABLE IF NOT EXISTS semantic_runs (
+ id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), session_id TEXT NOT NULL REFERENCES sessions(id),
+ node_id INTEGER NOT NULL, content_hash TEXT NOT NULL, model TEXT NOT NULL, prompt_version INTEGER NOT NULL,
+ budget_day TEXT NOT NULL, reserved_tokens INTEGER NOT NULL, prompt_tokens INTEGER, output_tokens INTEGER,
+ status TEXT NOT NULL, created_at INTEGER NOT NULL,
+ UNIQUE(task_id,session_id,node_id,content_hash,model,prompt_version)
+);
+CREATE TABLE IF NOT EXISTS semantic_proposals (
+ id TEXT PRIMARY KEY, run_id TEXT NOT NULL UNIQUE REFERENCES semantic_runs(id),
+ content TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL, accepted_item_id TEXT
+);
 '''
 
 
@@ -137,9 +155,11 @@ def sync(db, snapshots, workspaces, source_identity=None):
             missing = set(existing) - set(current)
             identity_change = any(n in existing and (existing[n][0] != v['parent_id'] or existing[n][1] != v['message_id']) for n, v in current.items())
             previous_health = db.execute('SELECT structural_stale FROM session_health WHERE session_id=?', (sid,)).fetchone()
-            structural_stale = bool(missing or session['ambiguous'] or identity_change or (previous_health and previous_health[0]))
+            newly_missing = any(existing[n][4] for n in missing)
+            structural_stale = bool(newly_missing or session['ambiguous'] or identity_change or (previous_health and previous_health[0]))
             status = 'stale' if structural_stale else 'pending' if session['head'] is None else 'current'
             db.execute('INSERT INTO session_health VALUES (?,?,0) ON CONFLICT(session_id) DO UPDATE SET structural_stale=excluded.structural_stale,source_unavailable=0', (sid,int(structural_stale)))
+            db.execute('INSERT INTO session_validation VALUES (?,?,1) ON CONFLICT(session_id) DO UPDATE SET ambiguous=excluded.ambiguous,present=1',(sid,int(session['ambiguous'])))
             db.execute('INSERT INTO sessions VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title, workspace=excluded.workspace, head=excluded.head, status=excluded.status, last_seen=excluded.last_seen', (sid, session['title'], session['workspace'], session['head'], status, now))
             for node_id, node in current.items():
                 db.execute('INSERT INTO node_kinds VALUES (?,?,?,?) ON CONFLICT(session_id,node_id,content_hash) DO UPDATE SET kinds=excluded.kinds', (sid,node_id,node['content_hash'],json.dumps(node['kinds'])))
@@ -167,6 +187,7 @@ def sync(db, snapshots, workspaces, source_identity=None):
                 if sid not in ids:
                     db.execute("UPDATE sessions SET status='stale' WHERE id=?", (sid,))
                     db.execute('INSERT INTO session_health VALUES (?,1,0) ON CONFLICT(session_id) DO UPDATE SET structural_stale=1', (sid,))
+                    db.execute('UPDATE session_validation SET present=0 WHERE session_id=?',(sid,))
     return changes
 
 
@@ -178,3 +199,27 @@ def mark_source_unavailable(db, workspaces):
             for sid in ids:
                 db.execute('INSERT INTO session_health VALUES (?,0,1) ON CONFLICT(session_id) DO UPDATE SET source_unavailable=1', (sid,))
                 db.execute("UPDATE sessions SET status='stale' WHERE id=?", (sid,))
+
+
+def acknowledge_structural_change(db, session_id, expected_fingerprint):
+    """Accept a freshly inspected complete snapshot without removing history."""
+    if not isinstance(expected_fingerprint,str) or len(expected_fingerprint)!=64:
+        raise ValueError('checkpoint required')
+    db.execute('BEGIN IMMEDIATE')
+    try:
+        row=db.execute('''SELECT h.structural_stale,h.source_unavailable,v.ambiguous,c.source_fingerprint,s.head,v.present
+          FROM sessions s JOIN session_health h ON h.session_id=s.id
+          JOIN session_validation v ON v.session_id=s.id JOIN checkpoints c ON c.session_id=s.id
+          WHERE s.id=?''',(session_id,)).fetchone()
+        if not row or not row[0] or row[1] or row[2] or row[4] is None or not row[5]:
+            raise ValueError('snapshot is not eligible for recovery')
+        if row[3]!=expected_fingerprint:
+            raise ValueError('snapshot changed; inspect it again')
+        missing=db.execute('SELECT COUNT(*) FROM source_nodes WHERE session_id=? AND present=0',(session_id,)).fetchone()[0]
+        db.execute('INSERT INTO recovery_history(session_id,source_fingerprint,missing_nodes,acknowledged_at) VALUES (?,?,?,?)',(session_id,expected_fingerprint,missing,time.time_ns()))
+        db.execute('UPDATE session_health SET structural_stale=0 WHERE session_id=?',(session_id,))
+        db.execute("UPDATE sessions SET status='current' WHERE id=?",(session_id,))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise

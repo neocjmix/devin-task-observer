@@ -1,5 +1,6 @@
 """Loopback-only dashboard for explicitly selected personal workspaces."""
 import argparse
+import datetime
 import json
 import secrets
 import sqlite3
@@ -13,16 +14,18 @@ from urllib.parse import parse_qs, urlsplit
 
 from .devin_local import SourceIncomplete, read_evidence
 from .registry import RevisionConflict, add_resource, create_task, link_session, list_tasks, task_resources, task_sessions, update_task, set_link_active, update_resource
-from .store import open_store
+from .store import open_store, acknowledge_structural_change
 from .views import add_item, add_section, attach_evidence, edit_item, ensure_view, get_view, rename_section, reorder_sections
+from .semantic import create_proposal, list_proposals, apply_proposal, reject_proposal, DAILY_BUDGET
 
 
 class LocalServer(ThreadingHTTPServer):
     daemon_threads = True
-    def __init__(self, address, source, store, workspaces):
+    def __init__(self, address, source, store, workspaces, enable_local_analysis=False):
         super().__init__(address, Handler)
         self.source, self.store, self.workspaces = source, store, workspaces
         self.token = secrets.token_hex(32)
+        self.enable_local_analysis = enable_local_analysis
         self.origin = f'http://127.0.0.1:{self.server_port}'
         self.stop_event = threading.Event()
         self.refresh_state = {'ok': False, 'stage': 'not_started'}
@@ -96,7 +99,9 @@ class Handler(BaseHTTPRequestHandler):
             if target.path=='/api/state':
                 allowed={str(w.absolute()) for w in self.server.workspaces}
                 sessions=[{'id':r[0],'title':r[1] or 'Untitled session','status':r[2], 'last_seen':r[4], 'task_count':r[5]} for r in db.execute('SELECT s.id,s.title,s.status,s.workspace,s.last_seen,(SELECT COUNT(*) FROM contributions c LEFT JOIN contribution_state cs ON cs.contribution_id=c.id WHERE c.session_id=s.id AND COALESCE(cs.active,1)=1) FROM sessions s ORDER BY s.last_seen DESC,s.id') if r[3] in allowed]
-                return self.respond(200,{'tasks':list_tasks(db),'sessions':sessions,'refresh':self.server.refresh_state})
+                day=datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+                reserved=db.execute('SELECT COALESCE(SUM(reserved_tokens),0) FROM semantic_runs WHERE budget_day=?',(day,)).fetchone()[0]
+                return self.respond(200,{'tasks':list_tasks(db),'sessions':sessions,'refresh':self.server.refresh_state,'local_analysis':self.server.enable_local_analysis,'analysis_budget':{'day_utc':day,'reserved':reserved,'limit':DAILY_BUDGET}})
             if target.path=='/api/session':
                 sid=query.get('id',[''])[0]
                 if not self.allowed_session(db,sid):return self.respond(404,{'error':'not found'})
@@ -126,6 +131,15 @@ class Handler(BaseHTTPRequestHandler):
                     chain.append({'node_id':node[0],'content_hash':node[2],'kinds':kinds});cursor=node[1]
                 chain.reverse()
                 return self.respond(200,{'id':sid,'title':session[0] or 'Untitled session','status':session[1],'last_seen':session[2],'nodes':chain[offset:offset+50],'next_offset':offset+50 if len(chain)>offset+50 else None,'total':len(chain),'excluded_nodes':len(nodes)-len(chain)})
+            if target.path=='/api/session-recovery':
+                sid=query.get('id',[''])[0]
+                if not self.allowed_session(db,sid):return self.respond(404,{'error':'not found'})
+                row=db.execute('''SELECT h.structural_stale,h.source_unavailable,v.ambiguous,v.present,c.source_fingerprint,s.head
+                    FROM sessions s LEFT JOIN session_health h ON h.session_id=s.id LEFT JOIN session_validation v ON v.session_id=s.id
+                    LEFT JOIN checkpoints c ON c.session_id=s.id WHERE s.id=?''',(sid,)).fetchone()
+                missing=db.execute('SELECT COUNT(*) FROM source_nodes WHERE session_id=? AND present=0',(sid,)).fetchone()[0]
+                eligible=bool(row and row[0] and not row[1] and row[2]==0 and row[3]==1 and row[4] and row[5] is not None)
+                return self.respond(200,{'eligible':eligible,'missing_nodes':missing,'ambiguous':bool(row and row[2]),'source_present':bool(row and row[3]),'fingerprint':row[4] if eligible else None})
             if target.path=='/api/session-evidence':
                 sid=query.get('session',[''])[0];node=int(query.get('node',['-1'])[0]);digest=query.get('hash',[''])[0]
                 if not self.allowed_session(db,sid) or not db.execute('SELECT 1 FROM event_evidence WHERE session_id=? AND node_id=? AND content_hash=?',(sid,node,digest)).fetchone():
@@ -142,13 +156,14 @@ class Handler(BaseHTTPRequestHandler):
                     for section in view['sections']:
                         for item in section['items']:
                             item['evidence']=[e for e in item['evidence'] if self.allowed_session(db,e['session_id'])]
-                return self.respond(200,{'view':view,'sessions':links,'resources':task_resources(db,task_id,include_archived=True)})
+                proposals=[p for p in list_proposals(db,task_id) if self.allowed_session(db,p['session_id'])]
+                return self.respond(200,{'view':view,'sessions':links,'resources':task_resources(db,task_id,include_archived=True),'proposals':proposals})
             if target.path=='/api/evidence-list':
                 task_id=query.get('task',[''])[0];sid=query.get('session',[''])[0]
                 if not self.allowed_session(db,sid) or not db.execute('SELECT 1 FROM contributions c LEFT JOIN contribution_state cs ON cs.contribution_id=c.id WHERE c.task_id=? AND c.session_id=? AND COALESCE(cs.active,1)=1',(task_id,sid)).fetchone():
                     return self.respond(404,{'error':'not found'})
-                rows=db.execute('SELECT node_id,role,content_hash,present FROM source_nodes WHERE session_id=? ORDER BY node_id',(sid,)).fetchall()
-                return self.respond(200,{'nodes':[{'node_id':n,'role':role,'content_hash':h,'present':bool(p)} for n,role,h,p in rows]})
+                rows=db.execute('SELECT n.node_id,n.role,n.content_hash,n.present,k.kinds FROM source_nodes n LEFT JOIN node_kinds k ON k.session_id=n.session_id AND k.node_id=n.node_id AND k.content_hash=n.content_hash WHERE n.session_id=? ORDER BY n.node_id',(sid,)).fetchall()
+                return self.respond(200,{'nodes':[{'node_id':n,'role':role,'content_hash':h,'present':bool(p),'kinds':json.loads(k) if k else ['unknown']} for n,role,h,p,k in rows]})
             if target.path=='/api/evidence':
                 task_id=query.get('task',[''])[0];sid=query.get('session',[''])[0];node=int(query.get('node',['-1'])[0]);digest=query.get('hash',[''])[0]
                 row=db.execute('SELECT s.workspace FROM sessions s JOIN contributions c ON c.session_id=s.id WHERE c.task_id=? AND s.id=?',(task_id,sid)).fetchone()
@@ -186,11 +201,17 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(400,{'error':'invalid request'})
         target=urlsplit(self.path).path
         if target=='/api/refresh':return self.respond(200,self.server.refresh())
+        if target=='/api/session/acknowledge':
+            if not self.server.refresh().get('ok'):
+                return self.respond(400,{'error':'source refresh failed'})
         db=None
         try:
             db=open_store(self.server.store,self.server.source)
             if target=='/api/task/create':
                 task=create_task(db,body.get('title',''),body.get('description',''));ensure_view(db,task);result={'id':task}
+            elif target=='/api/session/acknowledge':
+                if not self.allowed_session(db,body['session_id']):raise ValueError('session unavailable')
+                acknowledge_structural_change(db,body['session_id'],body['fingerprint']);result={'ok':True}
             elif target=='/api/task/edit':
                 result={'revision':update_task(db,body['id'],body['revision'],title=body.get('title'),description=body.get('description'),lifecycle=body.get('lifecycle'))}
             elif target=='/api/link':
@@ -205,6 +226,17 @@ class Handler(BaseHTTPRequestHandler):
                 result={'id':add_resource(db,body['task_id'],body['kind'],body['uri'])}
             elif target=='/api/resource/edit':
                 result={'revision':update_resource(db,body['task_id'],body['resource_id'],body['revision'],kind=body.get('kind'),uri=body.get('uri'),active=body.get('active'))}
+            elif target=='/api/proposal/create':
+                if not self.server.enable_local_analysis or not self.allowed_session(db,body['session_id']):raise ValueError('local analysis disabled or out of scope')
+                result=create_proposal(db,self.server.source,body['task_id'],body['session_id'],body['node_id'],body['content_hash'])
+            elif target=='/api/proposal/apply':
+                row=db.execute('SELECT r.session_id FROM semantic_proposals p JOIN semantic_runs r ON r.id=p.run_id WHERE p.id=? AND r.task_id=?',(body['proposal_id'],body['task_id'])).fetchone()
+                if not row or not self.allowed_session(db,row[0]):raise ValueError('proposal out of scope')
+                result={'revision':apply_proposal(db,body['task_id'],body['proposal_id'],body['view_id'],body['section_id'],body['revision'])}
+            elif target=='/api/proposal/reject':
+                row=db.execute('SELECT r.session_id FROM semantic_proposals p JOIN semantic_runs r ON r.id=p.run_id WHERE p.id=? AND r.task_id=?',(body['proposal_id'],body['task_id'])).fetchone()
+                if not row or not self.allowed_session(db,row[0]):raise ValueError('proposal out of scope')
+                reject_proposal(db,body['task_id'],body['proposal_id']);result={'ok':True}
             elif target=='/api/view/ensure':
                 result={'id':ensure_view(db,body['task_id'])}
             elif target=='/api/section/add':
@@ -225,7 +257,16 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200,result)
         except RevisionConflict:
             return self.respond(409,{'error':'revision conflict; reload before editing'})
-        except (ValueError,KeyError,TypeError,sqlite3.Error,OSError):
+        except ValueError as error:
+            safe={
+                'daily local analysis budget exhausted':'오늘의 로컬 분석 예산을 모두 사용했습니다.',
+                'evidence must be nonempty text within the size limit':'텍스트가 없거나 분석 가능한 크기(UTF-8 600바이트)를 초과했습니다.',
+                'unsupported evidence type':'관측된 사용자 또는 답변 항목만 분석할 수 있습니다.',
+                'local analysis failed; reserved budget is retained':'로컬 모델 분석에 실패했습니다. 예약된 예산은 유지됩니다.',
+                'current linked evidence required':'현재 연결된 최신 근거를 선택하세요.',
+            }
+            return self.respond(400,{'error':safe.get(str(error),'invalid or unavailable data')})
+        except (KeyError,TypeError,sqlite3.Error,OSError,SourceIncomplete):
             return self.respond(400,{'error':'invalid or unavailable data'})
         finally:
             if db is not None:db.close()
@@ -237,9 +278,10 @@ def main():
     p.add_argument('--source',type=Path,default=home/'.local/share/devin/cli/sessions.db')
     p.add_argument('--store',type=Path,default=home/'Library/Application Support/Devin Task Observer/observer.sqlite3')
     p.add_argument('--port',type=int,default=8765)
+    p.add_argument('--enable-local-analysis',action='store_true',help='enable manually requested local model suggestions')
     args=p.parse_args()
     db=open_store(args.store,args.source);db.close()
-    server=LocalServer(('127.0.0.1',args.port),args.source,args.store,args.workspace)
+    server=LocalServer(('127.0.0.1',args.port),args.source,args.store,args.workspace,args.enable_local_analysis)
     thread=threading.Thread(target=server.poll,daemon=True);thread.start()
     print('Dashboard listening at '+server.origin,flush=True)
     try:server.serve_forever()

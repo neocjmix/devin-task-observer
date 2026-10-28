@@ -93,13 +93,16 @@ def read_sessions(database: Path, workspaces: list[Path]):
             for sid, title, head in entries:
                 if not isinstance(sid, str) or not sid:
                     raise SourceIncomplete('invalid session identifier')
+                if head is not None and not isinstance(head, int):
+                    raise SourceIncomplete('invalid active chain head')
                 rows = db.execute('SELECT node_id, parent_node_id, chat_message FROM message_nodes WHERE session_id = ? ORDER BY node_id', (sid,)).fetchall()
                 nodes = []
                 parents = {}
                 by_message = {}
                 ambiguous = False
                 for node_id, parent, raw in rows:
-                    if not isinstance(node_id, int) or not isinstance(raw, str):
+                    if (not isinstance(node_id, int) or node_id in parents or
+                        (parent is not None and not isinstance(parent, int)) or not isinstance(raw, str)):
                         raise SourceIncomplete('invalid node')
                     try:
                         data = json.loads(raw)

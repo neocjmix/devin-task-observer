@@ -95,6 +95,30 @@ def edit_item(db, view_id, item_id, expected, *, content=None, status=None, pinn
     return revision
 
 
+def move_item(db, view_id, item_id, target_section_id, target_position, expected):
+    if not isinstance(target_position,int) or isinstance(target_position,bool) or target_position<0:
+        raise ValueError('valid item position required')
+    with db:
+        row=db.execute('SELECT i.section_id FROM view_items i JOIN view_sections s ON s.id=i.section_id WHERE i.id=? AND s.view_id=?',(item_id,view_id)).fetchone()
+        if not row or not db.execute('SELECT 1 FROM view_sections WHERE id=? AND view_id=?',(target_section_id,view_id)).fetchone():
+            raise KeyError('item or target section not found')
+        source=row[0]
+        source_ids=[r[0] for r in db.execute('SELECT id FROM view_items WHERE section_id=? ORDER BY position',(source,))]
+        target_ids=source_ids if source==target_section_id else [r[0] for r in db.execute('SELECT id FROM view_items WHERE section_id=? ORDER BY position',(target_section_id,))]
+        source_ids.remove(item_id)
+        if target_position>len(target_ids):raise ValueError('position outside section')
+        target_ids.insert(target_position,item_id)
+        revision=_bump(db,view_id,expected)
+        # Temporarily move positions below zero to avoid UNIQUE collisions.
+        db.execute('UPDATE view_items SET position=-position-1 WHERE section_id=?',(source,))
+        if source!=target_section_id:
+            db.execute('UPDATE view_items SET position=-position-1 WHERE section_id=?',(target_section_id,))
+            db.execute('UPDATE view_items SET section_id=?,position=? WHERE id=?',(target_section_id,-len(target_ids),item_id))
+            for i,iid in enumerate(source_ids):db.execute('UPDATE view_items SET position=? WHERE id=?',(i,iid))
+        for i,iid in enumerate(target_ids):db.execute('UPDATE view_items SET position=? WHERE id=?',(i,iid))
+    return revision
+
+
 def attach_evidence(db, view_id, item_id, expected, session_id, node_id, content_hash):
     with db:
         row=db.execute('SELECT v.task_id FROM view_items i JOIN view_sections s ON s.id=i.section_id JOIN task_views v ON v.id=s.view_id WHERE i.id=? AND v.id=?',(item_id,view_id)).fetchone()

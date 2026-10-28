@@ -73,6 +73,10 @@ CREATE TABLE IF NOT EXISTS contribution_history (
  id INTEGER PRIMARY KEY, contribution_id TEXT NOT NULL REFERENCES contributions(id),
  active INTEGER NOT NULL, revision INTEGER NOT NULL, saved_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS contribution_metadata_history (
+ id INTEGER PRIMARY KEY, contribution_id TEXT NOT NULL REFERENCES contributions(id),
+ role TEXT NOT NULL, scope TEXT NOT NULL, confidence REAL, revision INTEGER NOT NULL, saved_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS resource_state (
  resource_id TEXT PRIMARY KEY REFERENCES resources(id), active INTEGER NOT NULL, revision INTEGER NOT NULL
 );
@@ -130,8 +134,17 @@ def open_store(path: Path, source: Path):
     db = sqlite3.connect(target)
     db.execute('PRAGMA foreign_keys=ON')
     db.executescript(SCHEMA)
-    with db:
+    db.execute('BEGIN IMMEDIATE')
+    try:
+        columns={r[1] for r in db.execute('PRAGMA table_info(session_validation)')}
+        if 'present' not in columns:
+            db.execute('ALTER TABLE session_validation ADD COLUMN present INTEGER NOT NULL DEFAULT 0')
         db.execute("INSERT OR IGNORE INTO session_health SELECT id, CASE WHEN status='stale' THEN 1 ELSE 0 END, 0 FROM sessions")
+        db.commit()
+    except Exception:
+        db.rollback()
+        db.close()
+        raise
     return db
 
 

@@ -2,7 +2,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
-from observer.registry import add_resource, task_resources, create_task, update_task, link_session, list_tasks, task_sessions, session_tasks, RevisionConflict, set_link_active, update_resource
+from observer.registry import add_resource, task_resources, create_task, update_task, link_session, list_tasks, task_sessions, session_tasks, RevisionConflict, set_link_active, update_resource, update_contribution
 from observer.store import open_store
 
 
@@ -74,6 +74,19 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(set_link_active(self.db,task,link,2,True),3)
         self.assertEqual(task_sessions(self.db,task)[0]['role'],'research')
         self.assertEqual(self.db.execute('SELECT active,revision FROM contribution_history WHERE contribution_id=? ORDER BY id',(link,)).fetchall(),[(1,1),(0,2),(1,3)])
+
+    def test_contribution_metadata_edit_preserves_history_and_rejects_stale(self):
+        task=create_task(self.db,'Task');link=link_session(self.db,task,'s1',role='research',confidence=.5)
+        self.assertEqual(update_contribution(self.db,task,link,1,role='implementation',scope='prototype'),2)
+        with self.assertRaises(RevisionConflict):update_contribution(self.db,task,link,1,role='stale')
+        with self.assertRaises(ValueError):update_contribution(self.db,task,link,2,confidence=2)
+        self.assertEqual(update_contribution(self.db,task,link,2,confidence=None),3)
+        saved=task_sessions(self.db,task)[0]
+        self.assertEqual((saved['role'],saved['scope'],saved['confidence']),('implementation','prototype',None))
+        history=self.db.execute('SELECT role,scope,confidence,revision FROM contribution_metadata_history WHERE contribution_id=? ORDER BY id',(link,)).fetchall()
+        self.assertEqual(history,[('research','',.5,1),('implementation','prototype',.5,2),('implementation','prototype',None,3)])
+        set_link_active(self.db,task,link,3,False)
+        with self.assertRaises(ValueError):update_contribution(self.db,task,link,4,scope='not allowed')
 
     def test_resource_edit_archive_restore_conflict_and_history(self):
         task=create_task(self.db,'Task');rid=add_resource(self.db,task,'pr','https://example.com/old')

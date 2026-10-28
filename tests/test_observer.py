@@ -5,6 +5,8 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -148,6 +150,16 @@ class CollectorTests(unittest.TestCase):
         with self.assertRaises(ValueError): open_store(self.src, self.src)
         with self.assertRaises(ValueError): open_store(self.src.parent / 'other.db', self.src)
 
+    def test_older_validation_schema_migrates_conservatively(self):
+        path=self.root/'observer'/'old.db';old=sqlite3.connect(path)
+        old.execute('CREATE TABLE session_validation(session_id TEXT PRIMARY KEY, ambiguous INTEGER NOT NULL)')
+        old.execute("INSERT INTO session_validation VALUES ('one',0)");old.commit();old.close()
+        db=open_store(path,self.src)
+        self.assertEqual(db.execute("SELECT ambiguous,present FROM session_validation WHERE session_id='one'").fetchone(),(0,0))
+        sync(db,read_sessions(self.src,[self.work]),[self.work])
+        self.assertEqual(db.execute("SELECT present FROM session_validation WHERE session_id='one'").fetchone()[0],1)
+        db.close()
+
     def test_source_replacement_marks_existing_history_stale(self):
         snap = read_sessions(self.src, [self.work])
         sync(self.db, snap, [self.work], (1, 10))
@@ -174,6 +186,48 @@ class CollectorTests(unittest.TestCase):
             self.assertEqual(self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0], before)
         finally:
             self.writer.rollback()
+
+    def test_concurrent_wal_writer_yields_consistent_snapshots(self):
+        self.writer.execute('PRAGMA journal_mode=WAL')
+        started=threading.Event();finished=threading.Event();errors=[]
+        def write():
+            db=sqlite3.connect(self.src,timeout=5)
+            try:
+                for i in range(2,62):
+                    db.execute('INSERT INTO message_nodes VALUES(?,?,?,?,?)',(i+1,'one',i,i-1,message('m'+str(i),'synthetic '+str(i),'assistant')))
+                    db.execute('UPDATE sessions SET main_chain_id=?',(i,));db.commit();started.set();time.sleep(.002)
+            except Exception as error:errors.append(error)
+            finally:db.close();finished.set()
+        thread=threading.Thread(target=write);thread.start()
+        self.assertTrue(started.wait(5));reads=0
+        try:
+            while not finished.is_set():
+                snapshot=read_sessions(self.src,[self.work]);session=snapshot[0]
+                ids={n['node_id'] for n in session['nodes']}
+                self.assertEqual(ids,set(range(session['head']+1)))
+                sync(self.db,snapshot,[self.work]);reads+=1
+        finally:thread.join(timeout=5)
+        self.assertFalse(thread.is_alive());self.assertEqual(errors,[]);self.assertGreater(reads,0)
+        self.collect()
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM source_nodes WHERE present=1').fetchone()[0],62)
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0],'current')
+        self.assertEqual(self.collect(),0)
+
+    def test_twelve_sessions_are_distinct_and_one_delta_does_not_replay_others(self):
+        for s in range(12):
+            sid='synthetic-'+str(s)
+            self.writer.execute('INSERT INTO sessions VALUES (?,?,?,?)',(sid,'Synthetic '+str(s),str(self.work),24))
+            for i in range(25):
+                self.writer.execute('INSERT INTO message_nodes(session_id,node_id,parent_node_id,chat_message) VALUES (?,?,?,?)',(sid,i,None if i==0 else i-1,message(sid+'-m'+str(i),'synthetic')))
+        self.writer.commit();self.assertEqual(self.collect(),302)
+        checkpoints=dict(self.db.execute('SELECT session_id,source_fingerprint FROM checkpoints'))
+        self.assertEqual(len(checkpoints),13);self.assertEqual(self.collect(),0)
+        self.writer.execute('INSERT INTO message_nodes(session_id,node_id,parent_node_id,chat_message) VALUES (?,?,?,?)',('synthetic-5',25,24,message('new','new synthetic')))
+        self.writer.execute('UPDATE sessions SET main_chain_id=25 WHERE id=?',('synthetic-5',));self.writer.commit()
+        self.assertEqual(self.collect(),1)
+        updated=dict(self.db.execute('SELECT session_id,source_fingerprint FROM checkpoints'))
+        self.assertEqual([sid for sid in checkpoints if checkpoints[sid]!=updated[sid]],['synthetic-5'])
+        self.assertEqual(self.collect(),0)
 
     def test_transient_source_failure_recovers_but_structural_stale_does_not(self):
         self.collect()

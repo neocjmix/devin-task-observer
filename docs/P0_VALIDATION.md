@@ -43,4 +43,4 @@ The P0 diagnostics have 7 synthetic tests, included in the full suite reported i
 - Verify how actual user input is delimited from injected project context and how to distinguish internal user-role messages across versions and modes; do not parse undocumented wrappers by assumption.
 - Measure source lock/sidecar effects and observer crash behavior while Devin writes; test SQLite busy/locking and malformed or partial data. Never treat an incomplete snapshot as current.
 - Establish whether JSON transcript rewrite exists in the relevant Desktop providers, test other supported agents and multiple actively changing sessions, and verify additional hook payloads if needed.
-- Avoid claiming broad Desktop coverage from this single Local version. P2–P5 remain unstarted.
+- Avoid claiming broad Desktop coverage from this single Local version. Later prototype work and its limitations are tracked separately in the P1–P4 progress documents.

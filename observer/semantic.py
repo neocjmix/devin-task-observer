@@ -54,7 +54,7 @@ def local_generate(text):
 
 
 def create_proposal(db, source: Path, task_id, session_id, node_id, content_hash, generate=None):
-    row=db.execute('''SELECT s.workspace,s.status,n.content_hash,n.present,k.kinds
+    row=db.execute('''SELECT s.workspace,s.status,n.content_hash,n.present,k.kinds,n.message_id
         FROM sessions s JOIN source_nodes n ON n.session_id=s.id
         LEFT JOIN node_kinds k ON k.session_id=n.session_id AND k.node_id=n.node_id AND k.content_hash=n.content_hash
         JOIN contributions c ON c.session_id=s.id AND c.task_id=?
@@ -64,7 +64,7 @@ def create_proposal(db, source: Path, task_id, session_id, node_id, content_hash
         raise ValueError('current linked evidence required')
     kinds=json.loads(row[4]) if row[4] else []
     if not any(x in kinds for x in ('user','assistant')):raise ValueError('unsupported evidence type')
-    cached=db.execute('SELECT r.id,r.status,p.id FROM semantic_runs r LEFT JOIN semantic_proposals p ON p.run_id=r.id WHERE r.task_id=? AND r.session_id=? AND r.node_id=? AND r.content_hash=? AND r.model=? AND r.prompt_version=?',(task_id,session_id,node_id,content_hash,MODEL,PROMPT_VERSION)).fetchone()
+    cached=db.execute('''SELECT r.id,r.status,p.id FROM semantic_runs r LEFT JOIN semantic_proposals p ON p.run_id=r.id WHERE r.task_id=? AND r.session_id=? AND r.content_hash=? AND r.model=? AND r.prompt_version=? AND EXISTS (SELECT 1 FROM observations o WHERE o.session_id=r.session_id AND o.node_id=r.node_id AND o.content_hash=r.content_hash AND o.message_id=?)''',(task_id,session_id,content_hash,MODEL,PROMPT_VERSION,row[5])).fetchone()
     if cached: return {'run_id':cached[0],'status':cached[1],'proposal_id':cached[2],'cached':True}
     evidence=read_evidence(source,Path(row[0]),session_id,node_id,content_hash)
     content=evidence.get('content')
@@ -73,7 +73,7 @@ def create_proposal(db, source: Path, task_id, session_id, node_id, content_hash
     run_id=str(uuid.uuid4());day=datetime.datetime.now(datetime.timezone.utc).date().isoformat()
     db.execute('BEGIN IMMEDIATE')
     try:
-        cached=db.execute('SELECT r.id,r.status,p.id FROM semantic_runs r LEFT JOIN semantic_proposals p ON p.run_id=r.id WHERE r.task_id=? AND r.session_id=? AND r.node_id=? AND r.content_hash=? AND r.model=? AND r.prompt_version=?',(task_id,session_id,node_id,content_hash,MODEL,PROMPT_VERSION)).fetchone()
+        cached=db.execute('''SELECT r.id,r.status,p.id FROM semantic_runs r LEFT JOIN semantic_proposals p ON p.run_id=r.id WHERE r.task_id=? AND r.session_id=? AND r.content_hash=? AND r.model=? AND r.prompt_version=? AND EXISTS (SELECT 1 FROM observations o WHERE o.session_id=r.session_id AND o.node_id=r.node_id AND o.content_hash=r.content_hash AND o.message_id=?)''',(task_id,session_id,content_hash,MODEL,PROMPT_VERSION,row[5])).fetchone()
         if cached:
             db.rollback();return {'run_id':cached[0],'status':cached[1],'proposal_id':cached[2],'cached':True}
         spent=db.execute('SELECT COALESCE(SUM(reserved_tokens),0) FROM semantic_runs WHERE budget_day=?',(day,)).fetchone()[0]

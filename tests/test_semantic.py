@@ -43,6 +43,18 @@ class SemanticTests(unittest.TestCase):
         self.assertEqual((items[1]['origin'],items[1]['evidence'][0]['node_id']),('local_model',0))
         with self.assertRaises(ValueError):apply_proposal(self.db,self.task,proposal['proposal_id'],self.view,self.section,revision+1)
 
+    def test_duplicate_source_nodes_reuse_same_message_analysis(self):
+        source=sqlite3.connect(self.source)
+        raw=source.execute('SELECT chat_message FROM message_nodes WHERE node_id=0').fetchone()[0]
+        source.execute('INSERT INTO message_nodes VALUES (?,?,?,?)',('s1',3,2,raw))
+        source.execute('UPDATE sessions SET main_chain_id=3');source.commit();source.close()
+        sync(self.db,read_sessions(self.source,[self.workspace]),[self.workspace])
+        first=self.propose(0)
+        def fail(_):raise AssertionError('duplicate message was analyzed again')
+        repeated=self.propose(3,fail)
+        self.assertTrue(repeated['cached']);self.assertEqual(repeated['proposal_id'],first['proposal_id'])
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM semantic_runs').fetchone()[0],1)
+
     def test_daily_reservation_survives_failures_and_caps_calls(self):
         def broken(_):raise OSError('unavailable')
         with self.assertRaises(ValueError):self.propose(0,broken)

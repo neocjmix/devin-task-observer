@@ -13,9 +13,9 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from .devin_local import SourceIncomplete, read_evidence
-from .registry import RevisionConflict, add_resource, create_task, link_session, list_tasks, task_resources, task_sessions, update_task, set_link_active, update_resource
+from .registry import RevisionConflict, add_resource, create_task, link_session, list_tasks, task_resources, task_sessions, update_task, set_link_active, update_resource, update_contribution
 from .store import open_store, acknowledge_structural_change
-from .views import add_item, add_section, attach_evidence, edit_item, ensure_view, get_view, rename_section, reorder_sections
+from .views import add_item, add_section, attach_evidence, edit_item, ensure_view, get_view, rename_section, reorder_sections, move_item
 from .semantic import create_proposal, list_proposals, apply_proposal, reject_proposal, DAILY_BUDGET
 
 
@@ -147,7 +147,8 @@ class Handler(BaseHTTPRequestHandler):
                 workspace=db.execute('SELECT workspace FROM sessions WHERE id=?',(sid,)).fetchone()[0]
                 value=read_evidence(self.server.source,Path(workspace),sid,node,digest)
                 content=value.get('content')
-                return self.respond(200,{'content':content if isinstance(content,str) else '', 'role':value.get('role','unknown'), 'notice':'Raw source content may contain injected context.'})
+                calls=value.get('tool_calls')
+                return self.respond(200,{'content':content if isinstance(content,str) else '', 'tool_calls':calls if isinstance(calls,list) else [], 'role':value.get('role','unknown'), 'notice':'Raw source content may contain injected context.'})
             if target.path=='/api/task':
                 task_id=query.get('id',[''])[0]
                 links=[s for s in task_sessions(db,task_id,include_archived=True) if self.allowed_session(db,s['session_id'])]
@@ -173,7 +174,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self.respond(404,{'error':'not found'})
                 value=read_evidence(self.server.source,Path(row[0]),sid,node,digest)
                 content=value.get('content')
-                return self.respond(200,{'content':content if isinstance(content,str) else '', 'role':value.get('role','unknown'), 'notice':'Raw source content may contain injected context.'})
+                calls=value.get('tool_calls')
+                return self.respond(200,{'content':content if isinstance(content,str) else '', 'tool_calls':calls if isinstance(calls,list) else [], 'role':value.get('role','unknown'), 'notice':'Raw source content may contain injected context.'})
             return self.respond(404,{'error':'not found'})
         except (ValueError,KeyError,sqlite3.Error,SourceIncomplete,OSError):
             return self.respond(400,{'error':'unable to read data'})
@@ -222,6 +224,11 @@ class Handler(BaseHTTPRequestHandler):
                 row=db.execute('SELECT session_id FROM contributions WHERE id=? AND task_id=?',(body['link_id'],body['task_id'])).fetchone()
                 if not row or not self.allowed_session(db,row[0]):raise ValueError('link unavailable')
                 result={'revision':set_link_active(db,body['task_id'],body['link_id'],body['revision'],body['active'])}
+            elif target=='/api/link/edit':
+                row=db.execute('SELECT session_id FROM contributions WHERE id=? AND task_id=?',(body['link_id'],body['task_id'])).fetchone()
+                if not row or not self.allowed_session(db,row[0]):raise ValueError('link unavailable')
+                fields={k:body[k] for k in ('role','scope','confidence') if k in body}
+                result={'revision':update_contribution(db,body['task_id'],body['link_id'],body['revision'],**fields)}
             elif target=='/api/resource/add':
                 result={'id':add_resource(db,body['task_id'],body['kind'],body['uri'])}
             elif target=='/api/resource/edit':
@@ -249,6 +256,8 @@ class Handler(BaseHTTPRequestHandler):
                 iid,rev=add_item(db,body['view_id'],body['section_id'],body['revision'],body['content'],body.get('pinned',False));result={'id':iid,'revision':rev}
             elif target=='/api/item/edit':
                 result={'revision':edit_item(db,body['view_id'],body['item_id'],body['revision'],content=body.get('content'),status=body.get('status'),pinned=body.get('pinned'))}
+            elif target=='/api/item/move':
+                result={'revision':move_item(db,body['view_id'],body['item_id'],body['section_id'],body['position'],body['revision'])}
             elif target=='/api/evidence/attach':
                 if not self.allowed_session(db,body['session_id']):
                     raise ValueError('session is outside the configured workspaces')

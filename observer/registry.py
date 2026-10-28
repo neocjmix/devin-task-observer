@@ -8,6 +8,9 @@ class RevisionConflict(Exception):
     pass
 
 
+_UNCHANGED = object()
+
+
 def create_task(db, title, description=''):
     if not isinstance(title, str):
         raise ValueError('title must be text')
@@ -94,6 +97,30 @@ def set_link_active(db, task_id, link_id, expected_revision, active):
         if not db.execute('SELECT 1 FROM contribution_history WHERE contribution_id=?',(link_id,)).fetchone():
             db.execute('INSERT INTO contribution_history(contribution_id,active,revision,saved_at) VALUES (?,?,?,?)',(link_id,*old,time.time_ns()))
         db.execute('INSERT INTO contribution_history(contribution_id,active,revision,saved_at) VALUES (?,?,?,?)',(link_id,int(active),expected_revision+1,time.time_ns()))
+        return expected_revision+1
+
+
+def update_contribution(db, task_id, link_id, expected_revision, *, role=None, scope=None, confidence=_UNCHANGED):
+    if (not isinstance(expected_revision,int) or isinstance(expected_revision,bool) or
+        (role is not None and not isinstance(role,str)) or (scope is not None and not isinstance(scope,str)) or
+        (confidence is not _UNCHANGED and confidence is not None and
+         (not isinstance(confidence,(int,float)) or isinstance(confidence,bool) or not 0<=confidence<=1))):
+        raise ValueError('invalid contribution metadata')
+    with db:
+        row=db.execute('SELECT role,scope,confidence FROM contributions WHERE id=? AND task_id=?',(link_id,task_id)).fetchone()
+        if not row:raise KeyError('link not found')
+        db.execute('INSERT OR IGNORE INTO contribution_state VALUES (?,1,1)',(link_id,))
+        state=db.execute('SELECT active,revision FROM contribution_state WHERE contribution_id=?',(link_id,)).fetchone()
+        if state[1]!=expected_revision:raise RevisionConflict('link revision changed')
+        if not state[0]:raise ValueError('restore link before editing')
+        new=(row[0] if role is None else role,row[1] if scope is None else scope,row[2] if confidence is _UNCHANGED else confidence)
+        if new==row:return state[1]
+        cur=db.execute('UPDATE contribution_state SET revision=revision+1 WHERE contribution_id=? AND revision=?',(link_id,expected_revision))
+        if cur.rowcount!=1:raise RevisionConflict('link revision changed')
+        if not db.execute('SELECT 1 FROM contribution_metadata_history WHERE contribution_id=?',(link_id,)).fetchone():
+            db.execute('INSERT INTO contribution_metadata_history(contribution_id,role,scope,confidence,revision,saved_at) VALUES (?,?,?,?,?,?)',(link_id,*row,expected_revision,time.time_ns()))
+        db.execute('UPDATE contributions SET role=?,scope=?,confidence=? WHERE id=?',(*new,link_id))
+        db.execute('INSERT INTO contribution_metadata_history(contribution_id,role,scope,confidence,revision,saved_at) VALUES (?,?,?,?,?,?)',(link_id,*new,expected_revision+1,time.time_ns()))
         return expected_revision+1
 
 

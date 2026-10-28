@@ -63,6 +63,18 @@ class ServerTests(unittest.TestCase):
         status,second=self.request('GET','/api/session?id=s1&offset=50');self.assertEqual(status,200)
         self.assertEqual(len(second['events']),11);self.assertIsNone(second['next_offset'])
 
+    def test_tool_call_arguments_are_read_on_demand_without_body_storage(self):
+        source=sqlite3.connect(self.source)
+        raw=json.dumps({'message_id':'tool-message','role':'assistant','content':'','tool_calls':[{'id':'call1','name':'read','arguments':'synthetic-only'}]})
+        source.execute('INSERT INTO message_nodes VALUES (?,?,?,?)',('s1',1,0,raw))
+        source.execute('UPDATE sessions SET main_chain_id=1');source.commit();source.close();self.assertTrue(self.server.refresh()['ok'])
+        digest=hashlib.sha256(raw.encode()).hexdigest()
+        status,result=self.request('GET',f'/api/session-evidence?session=s1&node=1&hash={digest}')
+        self.assertEqual(status,200);self.assertEqual(result['tool_calls'][0]['arguments'],'synthetic-only')
+        db=open_store(self.store,self.source)
+        self.assertNotIn('synthetic-only',str(db.execute('SELECT * FROM source_nodes').fetchall()))
+        db.close()
+
     def test_active_chain_uses_parent_order_and_excludes_branches(self):
         db=open_store(self.store,self.source)
         with db:
@@ -135,6 +147,28 @@ class ServerTests(unittest.TestCase):
         status,_=self.request('POST','/api/session/acknowledge',{'session_id':'s1','fingerprint':recovery['fingerprint']});self.assertEqual(status,200)
         self.server.refresh();_,state=self.request('GET','/api/state');self.assertEqual(state['sessions'][0]['status'],'current')
         db=open_store(self.store,self.source);self.assertEqual(db.execute('SELECT present FROM source_nodes WHERE node_id=1').fetchone()[0],0);self.assertGreaterEqual(db.execute('SELECT COUNT(*) FROM observations').fetchone()[0],4);db.close();source.close()
+
+    def test_move_item_over_http_preserves_content_and_pin(self):
+        _,created=self.request('POST','/api/task/create',{'title':'synthetic task'});task=created['id']
+        _,detail=self.request('GET','/api/task?id='+task);view=detail['view'];source=view['sections'][0]['id']
+        _,section=self.request('POST','/api/section/add',{'view_id':view['id'],'revision':view['revision'],'title':'Notes'})
+        _,item=self.request('POST','/api/item/add',{'view_id':view['id'],'section_id':source,'revision':section['revision'],'content':'human note','pinned':True})
+        body={'view_id':view['id'],'item_id':item['id'],'section_id':section['id'],'position':0,'revision':item['revision']}
+        status,_=self.request('POST','/api/item/move',body);self.assertEqual(status,200)
+        status,_=self.request('POST','/api/item/move',body);self.assertEqual(status,409)
+        _,detail=self.request('GET','/api/task?id='+task);saved=detail['view']['sections'][1]['items'][0]
+        self.assertEqual((saved['id'],saved['content'],saved['pinned']),(item['id'],'human note',True))
+
+    def test_contribution_metadata_is_scoped_and_revisioned(self):
+        _,created=self.request('POST','/api/task/create',{'title':'synthetic task'});task=created['id']
+        _,link=self.request('POST','/api/link',{'task_id':task,'session_id':'s1'})
+        body={'task_id':task,'link_id':link['id'],'revision':1,'role':'investigation','scope':'synthetic only','confidence':.7}
+        status,_=self.request('POST','/api/link/edit',body);self.assertEqual(status,200)
+        status,_=self.request('POST','/api/link/edit',body);self.assertEqual(status,409)
+        _,detail=self.request('GET','/api/task?id='+task)
+        self.assertEqual((detail['sessions'][0]['role'],detail['sessions'][0]['scope'],detail['sessions'][0]['confidence']),('investigation','synthetic only',.7))
+        body['task_id']='other';body['revision']=2
+        status,_=self.request('POST','/api/link/edit',body);self.assertEqual(status,400)
 
     def test_task_session_view_and_hash_checked_evidence_flow(self):
         status,session=self.request('GET','/api/session?id=s1');self.assertEqual(status,200);self.assertEqual(len(session['events']),1);self.assertEqual(session['events'][0]['kind'],'user')

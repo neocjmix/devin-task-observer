@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from observer.registry import create_task, link_session, RevisionConflict
 from observer.store import open_store
-from observer.views import ensure_view, get_view, add_section, rename_section, reorder_sections, add_item, edit_item, attach_evidence
+from observer.views import ensure_view, get_view, add_section, rename_section, reorder_sections, add_item, edit_item, attach_evidence, move_item
 
 
 class ViewTests(unittest.TestCase):
@@ -58,6 +58,21 @@ class ViewTests(unittest.TestCase):
         rev=reorder_sections(self.db,self.vid,rev,[second,first])
         self.assertEqual([s['id'] for s in get_view(self.db,self.task)['sections']],[second,first])
         self.assertEqual(get_view(self.db,self.task)['revision'],rev)
+
+    def test_move_and_reorder_items_preserves_evidence_and_pins(self):
+        inbox=get_view(self.db,self.task)['sections'][0]['id'];second,rev=add_section(self.db,self.vid,1,'Decisions')
+        first,rev=add_item(self.db,self.vid,inbox,rev,'First',True);other,rev=add_item(self.db,self.vid,inbox,rev,'Second')
+        target,rev=add_item(self.db,self.vid,second,rev,'Existing')
+        link_session(self.db,self.task,'s1');rev=attach_evidence(self.db,self.vid,first,rev,'s1',1,'hash')
+        with self.assertRaises(ValueError):move_item(self.db,self.vid,first,second,9,rev)
+        with self.assertRaises(RevisionConflict):move_item(self.db,self.vid,first,second,0,rev-1)
+        rev=move_item(self.db,self.vid,first,second,0,rev)
+        view=get_view(self.db,self.task);self.assertEqual([x['id'] for x in view['sections'][0]['items']],[other])
+        self.assertEqual([x['id'] for x in view['sections'][1]['items']],[first,target])
+        moved=view['sections'][1]['items'][0];self.assertTrue(moved['pinned']);self.assertEqual(moved['evidence'][0]['content_hash'],'hash')
+        rev=move_item(self.db,self.vid,first,second,1,rev)
+        self.assertEqual([x['id'] for x in get_view(self.db,self.task)['sections'][1]['items']],[target,first])
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM view_item_history WHERE item_id=?',(first,)).fetchone()[0],1)
 
 
 if __name__=='__main__': unittest.main()

@@ -40,6 +40,24 @@ def observed_tool_revision(a, b):
     return a == b and sum(isinstance(v, dict) for v in values) == 1 and any(v is None for v in values)
 
 
+def observed_kinds(message):
+    """Conservative labels for shapes actually observed in the P0 test."""
+    role = message.get('role')
+    if role == 'user':
+        metadata = message.get('metadata')
+        return ['user'] if isinstance(metadata, dict) and metadata.get('is_user_input') is True else ['unknown']
+    if role == 'assistant':
+        kinds = []
+        if isinstance(message.get('content'), str) and message['content']:
+            kinds.append('assistant')
+        if isinstance(message.get('tool_calls'), list) and message['tool_calls']:
+            kinds.append('tool_call')
+        return kinds or ['unknown']
+    if role == 'tool' and isinstance(message.get('tool_call_id'), str) and message['tool_call_id']:
+        return ['tool_result']
+    return ['unknown']
+
+
 def read_sessions(database: Path, workspaces: list[Path]):
     if not workspaces:
         raise ValueError('at least one explicit personal workspace is required')
@@ -52,7 +70,7 @@ def read_sessions(database: Path, workspaces: list[Path]):
             raise SourceIncomplete('unsupported source schema')
         sessions = []
         for workdir in sorted({str(x.absolute()) for x in workspaces}):
-            entries = db.execute('SELECT id, title, main_chain_id FROM sessions WHERE working_directory = ?', (workdir,)).fetchall()
+            entries = db.execute('SELECT id, title, main_chain_id FROM sessions WHERE working_directory = ? ORDER BY id', (workdir,)).fetchall()
             for sid, title, head in entries:
                 if not isinstance(sid, str) or not sid:
                     raise SourceIncomplete('invalid session identifier')
@@ -81,7 +99,7 @@ def read_sessions(database: Path, workspaces: list[Path]):
                             ambiguous = True
                     by_message[message_id] = (digest, data)
                     parents[node_id] = parent
-                    nodes.append({'node_id': node_id, 'parent_id': parent, 'message_id': message_id, 'role': role, 'content_hash': digest})
+                    nodes.append({'node_id': node_id, 'parent_id': parent, 'message_id': message_id, 'role': role, 'kinds': observed_kinds(data), 'content_hash': digest})
                 cursor, seen = head, set()
                 while cursor is not None and cursor in parents and cursor not in seen:
                     seen.add(cursor)

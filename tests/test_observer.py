@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from observer.devin_local import read_sessions, SourceIncomplete
+from observer.devin_local import read_sessions, SourceIncomplete, observed_kinds
 from observer.store import open_store, sync
 
 
@@ -80,6 +80,7 @@ class CollectorTests(unittest.TestCase):
         with self.assertRaises(sqlite3.IntegrityError): self.collect()
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0], 2)
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM source_nodes').fetchone()[0], 2)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM node_kinds').fetchone()[0], 2)
         self.assertEqual(self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0], before)
         self.db.execute('DROP TRIGGER fail_checkpoint'); self.db.commit()
         self.assertEqual(self.collect(),1)
@@ -149,6 +150,14 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(self.collect(), 0)
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0], 3)
         self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'stale')
+
+    def test_conservative_event_labels(self):
+        self.assertEqual(observed_kinds({'role':'user','metadata':{'is_user_input':True}}), ['user'])
+        self.assertEqual(observed_kinds({'role':'user','metadata':{}}), ['unknown'])
+        self.assertEqual(observed_kinds({'role':'assistant','content':'text','tool_calls':[{}]}), ['assistant','tool_call'])
+        self.assertEqual(observed_kinds({'role':'tool','tool_call_id':'call'}), ['tool_result'])
+        self.assertEqual(observed_kinds({'role':'tool'}), ['unknown'])
+        self.assertEqual(observed_kinds({'role':'plan'}), ['unknown'])
 
     def test_killed_process_during_checkpoint_rolls_back(self):
         self.collect()

@@ -24,6 +24,10 @@ CREATE TABLE IF NOT EXISTS observations (
 CREATE TABLE IF NOT EXISTS checkpoints (
  session_id TEXT PRIMARY KEY, source_fingerprint TEXT NOT NULL, committed_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS node_kinds (
+ session_id TEXT NOT NULL, node_id INTEGER NOT NULL, content_hash TEXT NOT NULL,
+ kinds TEXT NOT NULL, PRIMARY KEY(session_id, node_id, content_hash)
+);
 '''
 
 
@@ -60,6 +64,7 @@ def sync(db, snapshots, workspaces):
             status = 'stale' if missing or session['ambiguous'] or identity_change or (previous_status and previous_status[0] == 'stale') else 'pending' if session['head'] is None else 'current'
             db.execute('INSERT INTO sessions VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title, workspace=excluded.workspace, head=excluded.head, status=excluded.status, last_seen=excluded.last_seen', (sid, session['title'], session['workspace'], session['head'], status, now))
             for node_id, node in current.items():
+                db.execute('INSERT INTO node_kinds VALUES (?,?,?,?) ON CONFLICT(session_id,node_id,content_hash) DO UPDATE SET kinds=excluded.kinds', (sid,node_id,node['content_hash'],json.dumps(node['kinds'])))
                 old = existing.get(node_id)
                 fresh = (node['parent_id'], node['message_id'], node['role'], node['content_hash'], 1)
                 if old != fresh:

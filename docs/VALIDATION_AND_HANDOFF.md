@@ -39,3 +39,16 @@ Use Codex for generic core/UI/fixtures and personal Devin only for integration p
 ## Current M1 handoff
 
 The prototype now implements [M1 — Useful Observer](M1_PROGRESS.md) for the observed Local configuration. The current lightweight entry point and explicit login-startup choice are in the [README](../README.md#local-entry-point). Actual Desktop/browser evidence and fixture-only guarantees are listed separately in the M1 acceptance table. Full transcript reconstruction, external resource status, production scale and other provider support remain outside the validated delivery.
+
+
+## Product-completion gate: M2 Semantic Task Tracking
+
+**M1 is not the finished product.** The original user problem is repeated manual status reconstruction across 10+ sessions. After linking sessions once, the user should ordinarily *read* a continuously maintained task state, not transcribe findings or approve every ordinary update.
+
+M2 must demonstrate: two sessions contributing to one task; incremental extraction of natural-language progress, blockers, decisions, open questions and next actions; persistent task-specific View structure; evidence-linked bounded patching; safe auto-apply to machine-owned items; preserved human edits; explicit conflicts and freshness; replay idempotence; zero-token unchanged reads/refresh; budget exhaustion fallback.
+
+Implement a single complete vertical slice first, with synthetic labeled scenarios and real personal Devin Desktop smoke tests. Manual semantic refresh is sufficient initially. No complete transcript engine, agent-side hook contract, ACP control, cloud services or redesign required. Distinguish real Devin validation from synthetic fixtures and do not claim full product completion from test count alone.
+
+Acceptance metrics: percentage of status questions answered without reopening Devin, unsupported-claim and omission rates against labeled scenarios, repeated-update duplicate rate, time to find blockers/next action, semantic tokens per useful update and number of user approvals. Record unresolved gaps and semantic staleness.
+
+The next critical path after M1 is **M2**, before optional polish and broad compatibility work. The experimental P4 single-message local-model note proposal must not be mistaken for multi-session semantic reconciliation.

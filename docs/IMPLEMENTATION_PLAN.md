@@ -85,3 +85,14 @@ No ACP control, wrapper, agent reporting skills, broad provider support, full ch
 ### Delivery priority override
 
 P0–P3 and M1 are infrastructure milestones. **M2 semantic task tracking is the next critical path, ahead of further UI polish, generalized transcript reconstruction, and new metadata features.** P5 dogfood follows M2. Do not claim the product goal achieved from deterministic candidates alone.
+
+
+## M2 model execution decision (normative, 2026-10-29)
+
+The semantic reconciler uses a provider-neutral `SemanticModelAdapter`. **Personal development and integration tests use Codex CLI in noninteractive mode**; **internal deployment targets Devin ACP**. The existing local Ollama single-message experiment is legacy, not the M2 default and not a reason to delay the primary adapters.
+
+Neither adapter may attach to, prompt, resume or seize an existing user task session. The Devin ACP adapter must create **separate analysis-only sessions** in an isolated workspace; ACP is a transport for analysis, not a task-session controller. No mandatory wrapper for user work.
+
+Implement and test Codex CLI end to end first, with schema-constrained output where supported, usage collection, explicit timeout/cancellation, restricted filesystem/tool access, and failure isolation. Implement a Devin ACP adapter behind the same interface with protocol negotiation, independent session creation, prompt, streamed response assembly, structured patch validation, timeout/cancellation and explicit unsupported-capability errors. Treat Devin ACP unattended execution, auth, concurrency, permission-denial behavior and token reporting as **unverified until tested in the target environment**. Do not invent protocol support or mark production-ready prematurely.
+
+Both adapters return the same bounded patch proposal and usage/diagnostics shape. The deterministic Core validates every patch independently of model or provider. A model failure must not advance semantic cursors or damage saved views. Credentials stay in approved local stores and never in source control. Internal transcripts must never be sent to personal Codex accounts; company use is restricted to the approved Devin environment. Keep local-only zero-token deterministic observation available.

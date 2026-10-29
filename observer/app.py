@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from .reconciliation import validate_policy
 
 LABEL='ai.neocjmix.devin-task-observer'
 DEFAULT_CONFIG=Path.home()/'Library/Application Support/Devin Task Observer/config.json'
@@ -16,7 +17,7 @@ DEFAULT_CONFIG=Path.home()/'Library/Application Support/Devin Task Observer/conf
 
 def validate_config(value):
     required={'version','workspaces','source','store','port'}
-    if not isinstance(value,dict) or not required<=set(value) or set(value)-required-{'git'} or type(value['version']) is not int or value['version']!=1:
+    if not isinstance(value,dict) or not required<=set(value) or set(value)-required-{'git','semantic'} or type(value['version']) is not int or value['version']!=1:
         raise ValueError('설정 형식이 올바르지 않습니다. configure로 다시 설정하세요.')
     if not isinstance(value['workspaces'],list) or not value['workspaces'] or any(not isinstance(x,str) or not Path(x).is_absolute() or not Path(x).is_dir() for x in value['workspaces']):
         raise ValueError('관측 작업 공간은 현재 존재하는 개인 폴더의 절대 경로여야 합니다.')
@@ -29,6 +30,7 @@ def validate_config(value):
         raise ValueError('포트는 1부터 65535 사이 정수여야 합니다.')
     if 'git' in value and (not isinstance(value['git'],str) or not Path(value['git']).is_absolute()):
         raise ValueError('선택적 Git 실행 파일은 절대 경로여야 합니다.')
+    validate_policy(value.get('semantic'))
     return value
 
 
@@ -90,6 +92,10 @@ def main(argv=None):
     configure.add_argument('--store',type=Path,default=Path.home()/'Library/Application Support/Devin Task Observer/observer.sqlite3')
     configure.add_argument('--port',type=int,default=8765)
     configure.add_argument('--git',type=Path,help='선택적 Git 실행 파일; 생략하면 PATH의 Git 사용')
+    configure.add_argument('--semantic-adapter',choices=('off','codex_exec','devin_acp'),default='off')
+    configure.add_argument('--semantic-environment',choices=('personal','internal'),default='personal')
+    configure.add_argument('--semantic-executable',type=Path,help='명시적으로 승인한 모델 CLI 절대 경로')
+    configure.add_argument('--approve-acp',action='store_true',help='대상 환경에서 검증·승인한 ACP만 활성화')
     commands.add_parser('run',help='설정으로 실행; Ctrl-C로 안전하게 종료')
     commands.add_parser('status',help='마지막 수집 성공/실패 상태 확인')
     auto=commands.add_parser('autostart',help='명시적 선택: 개인 로그인 시 실행 등록 또는 해제')
@@ -99,6 +105,9 @@ def main(argv=None):
         if args.command=='configure':
             value={'version':1,'workspaces':sorted({str(w.expanduser().absolute()) for w in args.workspace}),'source':str(args.source.expanduser().absolute()),'store':str(args.store.expanduser().absolute()),'port':args.port}
             if args.git:value['git']=str(args.git.expanduser().absolute())
+            if args.semantic_adapter!='off':
+                if not args.semantic_executable:raise ValueError('의미 분석에는 승인한 CLI 실행 파일 경로가 필요합니다.')
+                value['semantic']={'enabled':True,'environment':args.semantic_environment,'adapter':args.semantic_adapter,'executable':str(args.semantic_executable.expanduser().absolute()),'acp_approved':args.approve_acp}
             save_config(args.config,value);print('개인 작업 공간 설정을 저장했습니다. observerctl run으로 실행할 수 있습니다.');return 0
         if args.command=='autostart' and args.action=='remove':
             if sys.platform!='darwin':raise ValueError('로그인 자동 실행은 macOS에서만 지원합니다.')
@@ -116,7 +125,7 @@ def main(argv=None):
             if value.get('git'):os.environ['DEVIN_OBSERVER_GIT']=value['git']
             options=['--source',value['source'],'--store',value['store'],'--port',str(value['port'])]
             for w in value['workspaces']:options+=['--workspace',w]
-            server_main(options);return 0
+            server_main(options,semantic_policy=value.get('semantic'));return 0
         if sys.platform!='darwin':raise ValueError('로그인 자동 실행은 macOS에서만 지원합니다.')
         agent=Path.home()/'Library/LaunchAgents'/f'{LABEL}.plist'
         domain=f'gui/{os.getuid()}'

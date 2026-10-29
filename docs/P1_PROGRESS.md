@@ -1,5 +1,7 @@
 # P1: Local adapter and checkpoints (in progress)
 
+Historical milestone record. See [M2 progress](M2_PROGRESS.md) for the current semantic pipeline and live adapter results.
+
 Status: **not complete**. This is a narrow prototype for the observed Devin Local schema; it does not yet implement the full normalized event contract. The downstream prototype and its limitations are documented in [P2](P2_PROGRESS.md) and [P3](P3_PROGRESS.md).
 
 ## Implemented
@@ -56,3 +58,8 @@ Status: **not complete**. This is a narrow prototype for the observed Devin Loca
 [M1 progress](M1_PROGRESS.md) records the current acceptance scenarios and test count. Deterministic resource mentions and recognized plan snapshots now commit with node observations/checkpoints. Collector last-success/attempt/error state persists across restarts. Read failures retain checkpoints and distinguish missing source, permission, unsupported schema and invalid source. Readable ambiguity and structural divergence are separately exposed without hiding raw observations; they can still advance an observation checkpoint while warning about interpretation. Normal tested head changes, compaction and duplicate nodes do not require new manual recovery rules.
 
 The actual M1 synthetic Desktop session completed `/compact`; four sessions remained readable with zero stale sessions, and the two task-linked session plans remained distinct. This is one additional controlled case, not proof for every rewrite or long-running load. Git workspace facts are collected separately with fixed read-only commands, no remote fetch, and a HEAD/branch consistency recheck. A Git failure retains prior facts but marks them unconfirmed as current.
+
+
+## M2 follow-up (2026-10-29)
+
+The statements above describe the earlier milestone. [M2](M2_PROGRESS.md) now implements separate task/session semantic cursors and a bounded multi-session patch pipeline through SemanticModelAdapter, with real personal Codex validation and a partially live-verified ACP transport. The original collector, many-to-many links, human View, review cursors and default-off legacy Ollama experiment are preserved. Target ACP authentication/streaming and real-work usefulness remain open; see M2 for current evidence and limits.

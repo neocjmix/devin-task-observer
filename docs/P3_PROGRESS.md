@@ -1,5 +1,7 @@
 # P3: Persistent views and local dashboard (prototype)
 
+Historical milestone record. See [M2 progress](M2_PROGRESS.md) for the current semantic pipeline and live adapter results.
+
 Status: **partially implemented and tested; not full acceptance**. The dashboard is available only on `127.0.0.1`. Basic operation uses no LLM or external services; a separate opt-in local model experiment is described in [P4 progress](P4_PROGRESS.md). The active experimental instance uses a disposable synthetic workspace and a temporary test store.
 
 ## Implemented
@@ -35,3 +37,8 @@ Open task reviews and automatic resource/plan regions now update on polling and 
 The browser displays resource candidates, local Git facts and agent-reported session plans without a model. Resource candidates include evidence and shared-session/workspace warnings. Plan transitions use exact unique text and source graph ancestry; ambiguous branches, revisions and unsupported shapes remain visible rather than selecting a latest plan by timestamp. Plans from different sessions remain separate.
 
 `observerctl` provides configure/run/status and explicit autostart install/remove. The dashboard shows last successful collection time and safe error guidance. A same-origin custom-header token bootstrap lets an already open page recover after service restart without discarding drafts. No CORS is enabled. A temporary macOS service restarted after SIGKILL and was unloaded; no permanent login startup was enabled. See M1 for the actual Desktop/browser scenarios and remaining limits.
+
+
+## M2 follow-up (2026-10-29)
+
+The statements above describe the earlier milestone. [M2](M2_PROGRESS.md) now implements separate task/session semantic cursors and a bounded multi-session patch pipeline through SemanticModelAdapter, with real personal Codex validation and a partially live-verified ACP transport. The original collector, many-to-many links, human View, review cursors and default-off legacy Ollama experiment are preserved. Target ACP authentication/streaming and real-work usefulness remain open; see M2 for current evidence and limits.

@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 from .discovery import SCHEMA as DISCOVERY_SCHEMA, save_mentions
 from .plans import SCHEMA as PLAN_SCHEMA, save_plans
+from .reconciliation import SCHEMA as TRACKING_SCHEMA
 
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS sessions (
@@ -174,7 +175,7 @@ def open_store(path: Path, source: Path):
         os.close(fd)
     db = sqlite3.connect(target)
     db.execute('PRAGMA foreign_keys=ON')
-    db.executescript(SCHEMA + DISCOVERY_SCHEMA + PLAN_SCHEMA)
+    db.executescript(SCHEMA + DISCOVERY_SCHEMA + PLAN_SCHEMA + TRACKING_SCHEMA)
     db.execute('BEGIN IMMEDIATE')
     try:
         columns={r[1] for r in db.execute('PRAGMA table_info(session_validation)')}

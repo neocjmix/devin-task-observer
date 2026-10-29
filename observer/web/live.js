@@ -74,13 +74,15 @@ async function refreshOpen() {
 function sourceButton(evidence,container) {
   if(!evidence.session_id)return el('p','로컬 Git에서 확인 · 현재 작업 공간의 값이며 세션 당시 상태나 태스크 소속은 미검증','muted');
   const task=current,epoch=navigationEpoch;
-  return btn('근거 · '+(evidence.session_title||'세션')+' · 노드 '+evidence.node_id,()=>run(async()=>{
+  return btn('근거 · '+(evidence.session_title||evidence.session_id||'세션')+' · 노드 '+evidence.node_id,()=>run(async()=>{
     const q=new URLSearchParams({session:evidence.session_id,node:String(evidence.node_id),hash:evidence.content_hash});
     const data=await api('/api/session-evidence?'+q);
     if(current===task && navigationEpoch===epoch)container.append(...evidenceElements(data));
   }));
 }
 function renderProjection(data) {
+  renderTracking(data.semantic);
+  const {semantic,...observed}=data;data=observed;
   const root=$('observer-summary');if(!root)return;
   const signature=JSON.stringify(data);if(root.dataset.signature===signature)return;
   root.dataset.signature=signature;root.replaceChildren();
@@ -119,4 +121,73 @@ function renderProjection(data) {
     if(history.length){const detail=el('details');detail.append(el('summary','이전 계획 근거 '+history.length+'개'));for(const v of history)detail.append(versionCard(v));box.append(detail)}
     plans.append(box);
   }root.append(plans);
+}
+
+function renderTracking(data) {
+  const root=$('semantic-summary');if(!root||!data)return;
+  let state=$('semantic-state');
+  if(!state){state=el('div');state.id='semantic-state';const editor=el('div');editor.id='semantic-editor';root.append(state,editor)}
+  const signature=JSON.stringify(data);if(state.dataset.signature===signature)return;
+  state.dataset.signature=signature;state.replaceChildren();
+  const task=current,epoch=navigationEpoch;
+  state.append(el('h3','태스크 현재 상태 · 의미 분석'),el('p','저장된 모델 해석입니다. 보고·가설과 실제 검증은 다릅니다. 화면 조회와 일반 새로고침은 모델을 호출하지 않습니다.','muted'));
+  if(data.enabled)state.append(el('p','분석 경로: '+(data.adapter==='codex_exec'?'개인 Codex CLI · 선택된 근거를 개인 계정으로 전달':'승인된 Devin ACP · 독립 분석 세션'),'muted'));
+  const freshness={current:'처리한 관측까지 반영',pending:'새 변경 또는 근거 확인 필요',partial:'미지원 관측 유형이 있어 부분 해석',never_analyzed:'아직 의미 분석하지 않음'};
+  state.append(el('p',(data.enabled?'수동 Semantic Refresh 사용':'의미 분석 비활성')+' · '+freshness[data.freshness]+' · 대기 관측 '+data.pending_observations+(data.pending_count_capped?'+':'')+(data.last_success?' · 마지막 반영 '+new Date(data.last_success/1000000).toLocaleString():''),'muted'));
+  const errors={semantic_disabled:'의미 분석이 꺼져 있습니다.',semantic_budget_exhausted:'오늘의 호출·예약 예산을 소진했습니다. 기존 상태와 미처리 변경은 유지됩니다.',semantic_source_gap:'아직 해석하지 못한 원본이 변경되거나 사라졌습니다. 의미 분석 위치를 진행하지 않았습니다.',semantic_event_too_large:'한 원본 항목이 분석 크기 제한을 초과했습니다. 자동으로 잘라 해석하지 않습니다.',explicit_retry_required:'실패 기록이 있습니다. 원인을 확인한 뒤 명시적으로 재시도하세요.',semantic_revision_conflict:'분석 중 태스크나 사용자 정보가 변경됐습니다. 이전 결과를 적용하지 않았습니다.',semantic_busy:'다른 의미 분석이 진행 중입니다.',timeout:'모델 실행 시간이 초과됐습니다.',codex_auth_required:'개인 Codex 인증이 필요합니다.',acp_auth_or_request_failed:'승인된 Devin ACP의 인증 또는 요청이 실패했습니다.'};
+  if(data.last_error)state.append(el('p',errors[data.last_error]||('분석 미반영 · '+data.last_error),'message'));
+  if(data.unsupported_observations)state.append(el('p','미지원 관측 '+data.unsupported_observations+'건 · 의미 정보 포함 여부를 확정할 수 없습니다.','muted'));
+  if(data.enabled){
+    const action=retry=>run(async()=>{
+      show('연결된 세션의 새 변경을 분석하고 있습니다.');
+      const result=await api('/api/semantic/refresh',{task_id:task,retry});
+      if(current!==task||navigationEpoch!==epoch)return;
+      await refreshOpen();
+      show(result.model_called?'의미 분석 반영 · '+(result.operations||0)+'개 연산'+(result.usage?.input_tokens!=null?' · 입력 '+result.usage.input_tokens+' / 출력 '+result.usage.output_tokens+' 토큰':' · 사용량 미확인'):'새로운 분석 대상 없음 · 모델 호출 0회');
+    });
+    state.append(btn('Semantic Refresh',()=>action(false),'primary'));
+    if(data.last_error||data.runs.some(r=>['failed','interrupted'].includes(r.status)))state.append(btn('실패한 증분 재시도',()=>action(true)));
+  }
+  const labels={progress:'진행 상황',blocker:'블로커',decision:'결정',question:'미해결 질문',next_action:'다음 행동',finding:'발견',hypothesis:'가설'};
+  if(!data.items.length)state.append(el('p','저장된 의미 분석 상태가 없습니다. 구조화 계획과 리소스는 아래에서 계속 확인할 수 있습니다.','muted'));
+  for(const category of Object.keys(labels)){
+    const items=data.items.filter(i=>i.category===category);if(!items.length)continue;
+    const section=el('div',undefined,'section');section.append(el('h3',labels[category]));
+    const historical=items.filter(i=>['resolved','superseded'].includes(i.status));
+    const history=el('details');if(historical.length)history.append(el('summary','해결·이전 기록 '+historical.length+'개'));
+    if(historical.length===items.length)section.append(el('p','현재 열린 항목 없음 · 이전 보고와 해결 근거는 아래에 보존합니다.','muted'));
+    for(const item of items){
+      const card=el('div',undefined,'item');card.append(el('p',item.content),el('p',item.status+' · '+(item.epistemic==='hypothesis'?'가설':'출처의 보고에 대한 해석')+' · '+(item.owner==='human'?'사용자 수정 우선':'자동 관리')+(item.pinned?' · 고정됨':'')+(item.source_current?'':' · 원본 변경·연결 해제 등 근거 재확인 필요'),'muted'));
+      if(item.conflicts.length)card.append(el('p','상충하는 주장 '+item.conflicts.length+'개 · 어느 쪽도 자동 확정하지 않았습니다.','message'));
+      if(item.attribution_uncertain)card.append(el('p','공유 세션 근거 포함 · 태스크 소속에 대한 해석은 미확정입니다.','muted'));
+      card.append(btn('수정',()=>{
+        if(current!==task||navigationEpoch!==epoch)return;
+        const editor=$('semantic-editor');editor.replaceChildren();
+        const input=el('textarea'),key='semantic:'+item.id;input.setAttribute('aria-label','의미 분석 항목 수정');input.value=drafts.get(key)??item.content;input.oninput=()=>drafts.set(key,input.value);
+        editor.append(el('p','수정하면 이 항목은 사용자 소유로 유지됩니다.','muted'),input,btn('수정 저장',()=>run(async()=>{
+          const latest=await api('/api/task-observer?task='+encodeURIComponent(task));
+          const stored=latest.semantic.items.find(i=>i.id===item.id);
+          if(!stored||stored.revision!==item.revision)throw Error('이 항목이 변경됐습니다. 초안은 유지했습니다. 현재 항목을 확인한 뒤 수정 화면을 다시 열어 주세요.');
+          if(current!==task||navigationEpoch!==epoch)return;
+          await api('/api/semantic/item',{task_id:task,item_id:item.id,revision:latest.semantic.revision,content:input.value});
+          drafts.delete(key);if(current!==task||navigationEpoch!==epoch)return;editor.replaceChildren();await refreshOpen();
+        })),btn('닫기',()=>editor.replaceChildren()));input.focus();
+      }),btn(item.pinned?'고정 해제':'고정',()=>run(async()=>{
+        await api('/api/semantic/item',{task_id:task,item_id:item.id,revision:data.revision,pinned:!item.pinned});
+        if(current===task&&navigationEpoch===epoch)await refreshOpen();
+      })));
+      for(const evidence of item.evidence)card.append(sourceButton(evidence,card));
+      if(['resolved','superseded'].includes(item.status))history.append(card);else section.append(card);
+    }if(historical.length)section.append(history);state.append(section);
+  }
+  for(const p of data.proposals.filter(p=>p.status==='pending')){
+    const box=el('div',undefined,'section');box.append(el('p','검토가 필요한 변경 · '+p.operation.op+' · '+p.operation.content,'muted'));
+    const choices=['supersede','propose_section'].includes(p.operation.op)?[[true,'변경 승인'],[false,'거절']]:[[false,'제안 거절']];
+    if(choices.length===1)box.append(el('p','이 변경은 해당 항목의 수정 기능에서 직접 판단할 수 있습니다.','muted'));
+    for(const [approve,label] of choices)box.append(btn(label,()=>run(async()=>{
+      await api('/api/semantic/proposal',{task_id:task,proposal_id:p.id,revision:data.revision,approve});
+      if(current===task&&navigationEpoch===epoch)await refreshOpen();
+    })));state.append(box);
+  }
+  if(data.runs.length){const last=data.runs[0];state.append(el('p','최근 실행 '+last.status+' · 예약 '+last.reserved_tokens+' 토큰 · '+(last.input_tokens===null?'실제 사용량 미확인':('실제 입력 '+last.input_tokens+' / 출력 '+last.output_tokens)),'muted'))}
 }

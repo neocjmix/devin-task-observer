@@ -23,6 +23,8 @@ from .semantic import create_proposal, list_proposals, apply_proposal, reject_pr
 from .progress import pending_changes, acknowledge_changes, task_attention
 from .discovery import task_candidates, confirm_candidate, task_git_status
 from .plans import task_plans
+from .reconciliation import projection as tracking_projection, refresh as semantic_refresh, correct_item, resolve_pending, validate_policy
+from .model_adapters import ModelError
 
 
 def evidence_response(value):
@@ -37,7 +39,7 @@ def evidence_response(value):
 
 class LocalServer(ThreadingHTTPServer):
     daemon_threads = True
-    def __init__(self, address, source, store, workspaces, enable_local_analysis=False):
+    def __init__(self, address, source, store, workspaces, enable_local_analysis=False, semantic_policy=None):
         super().__init__(address, Handler)
         self.source, self.store, self.workspaces = source, store, workspaces
         self.token = secrets.token_hex(32)
@@ -46,6 +48,8 @@ class LocalServer(ThreadingHTTPServer):
         self.stop_event = threading.Event()
         self.refresh_state = {'ok': False, 'stage': 'not_started'}
         self.refresh_guard = threading.Lock()
+        self.semantic_policy = validate_policy(semantic_policy)
+        self.semantic_cancel = threading.Event()
 
     def refresh(self):
         if not self.refresh_guard.acquire(blocking=False):
@@ -154,7 +158,8 @@ class Handler(BaseHTTPRequestHandler):
                   WHERE c.task_id=? AND COALESCE(cs.active,1)=1''',(task_id,)):
                     if not self.allowed_session(db,sid):continue
                     health.append({'session_id':sid,'title':title,'state':'unavailable' if unavailable else 'readable_ambiguous' if ambiguous else 'readable_changed' if structural else 'readable','status':status})
-                return self.respond(200,{'resources':candidates,'plans':plans,'health':health,'git':task_git_status(db,task_id,self.server.workspaces)})
+                return self.respond(200,{'resources':candidates,'plans':plans,'health':health,'git':task_git_status(db,task_id,self.server.workspaces),
+                    'semantic':tracking_projection(db,task_id,self.server.workspaces,self.server.semantic_policy)})
             if target.path=='/api/session':
                 sid=query.get('id',[''])[0]
                 if not self.allowed_session(db,sid):return self.respond(404,{'error':'not found'})
@@ -278,7 +283,15 @@ class Handler(BaseHTTPRequestHandler):
         db=None
         try:
             db=open_store(self.server.store,self.server.source)
-            if target=='/api/task/create':
+            if target=='/api/semantic/refresh':
+                if set(body)-{'task_id','retry'} or type(body.get('retry',False)) is not bool:raise ModelError('invalid_semantic_request')
+                result=semantic_refresh(db,self.server.source,self.server.store,body['task_id'],self.server.workspaces,self.server.semantic_policy,retry=body.get('retry',False),cancel=self.server.semantic_cancel)
+            elif target=='/api/semantic/item':
+                if set(body)-{'task_id','item_id','revision','content','pinned','status'}:raise ModelError('invalid_correction')
+                correct_item(db,body['task_id'],body['item_id'],body['revision'],**{k:body[k] for k in ('content','pinned','status') if k in body});result={'ok':True}
+            elif target=='/api/semantic/proposal':
+                resolve_pending(db,body['task_id'],body['proposal_id'],body['revision'],body['approve'],self.server.source,self.server.workspaces);result={'ok':True}
+            elif target=='/api/task/create':
                 task=create_task(db,body.get('title',''),body.get('description',''));ensure_view(db,task);result={'id':task}
             elif target=='/api/session/acknowledge':
                 if not self.allowed_session(db,body['session_id']):raise ValueError('session unavailable')
@@ -341,6 +354,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200,result)
         except RevisionConflict:
             return self.respond(409,{'error':'revision conflict; reload before editing'})
+        except ModelError as error:
+            return self.respond(400,{'error':str(error)})
         except ValueError as error:
             safe={
                 'daily local analysis budget exhausted':'오늘의 로컬 분석 예산을 모두 사용했습니다.',
@@ -359,32 +374,36 @@ class Handler(BaseHTTPRequestHandler):
             if db is not None:db.close()
 
 
-def main(argv=None):
+def main(argv=None,semantic_policy=None):
     home=Path.home();p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--workspace',action='append',required=True,type=Path)
     p.add_argument('--source',type=Path,default=home/'.local/share/devin/cli/sessions.db')
     p.add_argument('--store',type=Path,default=home/'Library/Application Support/Devin Task Observer/observer.sqlite3')
     p.add_argument('--port',type=int,default=8765)
     p.add_argument('--enable-local-analysis',action='store_true',help='enable manually requested local model suggestions')
+    p.add_argument('--semantic-config',type=Path,help='explicit personal Codex or approved internal ACP policy JSON')
     args=p.parse_args(argv)
     db=open_store(args.store,args.source);db.close()
     fd=os.open(str(args.store.absolute().resolve())+'.service.lock',os.O_RDWR|os.O_CREAT|getattr(os,'O_NOFOLLOW',0),0o600)
     try:fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
     except BlockingIOError:
         os.close(fd);raise ValueError('이 저장소의 Observer가 이미 실행 중입니다.') from None
-    try:server=LocalServer(('127.0.0.1',args.port),args.source,args.store,args.workspace,args.enable_local_analysis)
+    policy=validate_policy(json.loads(args.semantic_config.read_text())) if args.semantic_config else validate_policy(semantic_policy)
+    try:server=LocalServer(('127.0.0.1',args.port),args.source,args.store,args.workspace,args.enable_local_analysis,policy)
     except OSError:
         os.close(fd);raise
     thread=threading.Thread(target=server.poll,daemon=True);thread.start()
     print('Dashboard listening at '+server.origin,flush=True)
     def terminate(*_):
         server.stop_event.set()
+        server.semantic_cancel.set()
         threading.Thread(target=server.shutdown,daemon=True).start()
     old=signal.signal(signal.SIGTERM,terminate)
     try:server.serve_forever()
     except KeyboardInterrupt:pass
     finally:
         server.stop_event.set();server.server_close();thread.join(timeout=35)
+        server.semantic_cancel.set()
         signal.signal(signal.SIGTERM,old);os.close(fd)
 
 if __name__=='__main__':main()

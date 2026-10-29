@@ -1,5 +1,7 @@
 # M1 — Useful Observer
 
+Historical milestone record. See [M2 progress](M2_PROGRESS.md) for the current semantic pipeline and live adapter results.
+
 Status: implemented and validated for the tested personal Local configuration (2026-10-29). Full P1 transcript acceptance and long-running production readiness remain open. Continues `p0/desktop-probe` and draft PR #1; baseline `ecf7b28`, 90 passing tests. Only Devin Desktop 3.10.67 Local schema 17 is supported by observed evidence. P4 remains default-off and is not expanded.
 
 ## Implemented so far
@@ -55,3 +57,8 @@ The actual Desktop tests used only isolated synthetic sessions and dummy resourc
 - Git uses PATH or the explicitly configured Git executable. The validation Mac uses an existing alternative because the system Git requires accepting an Xcode license. No Codex-specific executable path is built into product code.
 - The discovery grammar is deliberately bounded (including URL/identifier length and explicit text labels). It does not understand arbitrary prose, every ticket host, GitHub Enterprise, all quoting conventions or all branch/commit command output. A branch or short hash with the same spelling in another workspace is a separate candidate.
 - Derived resources and plan records are additive. Older unavailable source versions cannot be newly interpreted or their full bodies recovered. No automatic note rewrite, pin change, review acknowledgment, verified completion, external status inference or LLM analysis is performed.
+
+
+## M2 follow-up (2026-10-29)
+
+The statements above describe the earlier milestone. [M2](M2_PROGRESS.md) now implements separate task/session semantic cursors and a bounded multi-session patch pipeline through SemanticModelAdapter, with real personal Codex validation and a partially live-verified ACP transport. The original collector, many-to-many links, human View, review cursors and default-off legacy Ollama experiment are preserved. Target ACP authentication/streaming and real-work usefulness remain open; see M2 for current evidence and limits.

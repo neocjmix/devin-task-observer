@@ -33,6 +33,37 @@ class ServerTests(unittest.TestCase):
         connection.request(method,path,body=data,headers=opts);resp=connection.getresponse();status=resp.status;raw=resp.read();connection.close()
         return status,json.loads(raw) if raw else None
 
+    def test_m2_manual_refresh_and_reads_use_separate_persistent_projection(self):
+        import test_reconciliation as fixtures
+        policy={'enabled':True,'environment':'personal','adapter':'codex_exec','executable':'/synthetic/codex'}
+        self.server.semantic_policy=policy
+        _,created=self.request('POST','/api/task/create',{'title':'M2 synthetic'})
+        task=created['id'];self.request('POST','/api/link',{'task_id':task,'session_id':'s1'})
+        model=fixtures.FakeModel(lambda b:[fixtures.operation('report','Synthetic progress report',b['evidence_delta'][0]['id'])])
+        with patch('observer.reconciliation.adapter_for',return_value=model):
+            status,result=self.request('POST','/api/semantic/refresh',{'task_id':task})
+            self.assertEqual(status,200);self.assertTrue(result['model_called'])
+            for _ in range(2):
+                status,state=self.request('GET','/api/task-observer?task='+task)
+                self.assertEqual(status,200);self.assertEqual(len(state['semantic']['items']),1)
+            _,again=self.request('POST','/api/semantic/refresh',{'task_id':task})
+            self.assertFalse(again['model_called']);self.assertEqual(len(model.calls),1)
+        semantic=state['semantic'];item=semantic['items'][0]
+        status,_=self.request('POST','/api/semantic/item',{'task_id':task,'item_id':item['id'],'revision':semantic['revision'],'content':'Human correction','pinned':True})
+        self.assertEqual(status,200)
+        _,state=self.request('GET','/api/task-observer?task='+task)
+        self.assertEqual(state['semantic']['items'][0]['owner'],'human');self.assertTrue(state['semantic']['items'][0]['pinned'])
+        status,_=self.request('POST','/api/semantic/refresh',{'task_id':task,'adapter':'unapproved'})
+        self.assertEqual(status,400)
+
+    def test_m2_disabled_policy_never_starts_an_adapter(self):
+        _,created=self.request('POST','/api/task/create',{'title':'Default zero-token task'})
+        with patch('observer.reconciliation.adapter_for',side_effect=AssertionError('must not run')):
+            status,result=self.request('POST','/api/semantic/refresh',{'task_id':created['id']})
+            self.assertEqual(status,400);self.assertEqual(result['error'],'semantic_disabled')
+            status,state=self.request('GET','/api/task-observer?task='+created['id'])
+            self.assertEqual(status,200);self.assertFalse(state['semantic']['enabled'])
+
     def test_host_origin_and_token_protection(self):
         status,_=self.request('GET','/api/state',headers={'X-Observer-Token':'wrong'});self.assertEqual(status,403)
         status,_=self.request('GET','/api/state',headers={'Host':'evil.example'});self.assertEqual(status,403)

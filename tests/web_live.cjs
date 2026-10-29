@@ -4,6 +4,8 @@ class Element {
   constructor(){this.children=[];this.dataset={};this.replacements=0;this.value='';}
   set id(x){ids.set(x,this);this._id=x;} get id(){return this._id;}
   append(...items){this.children.push(...items);}
+  setAttribute(key,value){this[key]=value;}
+  focus(){this.focused=true;}
   replaceChildren(...items){this.replacements++;this.children=items;}
 }
 const context=vm.createContext({console,Map,Array,JSON,encodeURIComponent,URLSearchParams});
@@ -41,5 +43,19 @@ const page=(n,start=1)=>({revision:0,last_observation_id:start-1,changes:Array.f
     return {ok:true,status:200,json:async()=>({ok:true})};
   };
   await call("api('/api/state')");assert.equal(context.token,'a'.repeat(64));assert.equal(requests.length,3);assert(detail.children.includes(draft));
+  const semanticRoot=new Element();semanticRoot.id='semantic-summary';
+  context.drafts=new Map();context.show=text=>context.lastMessage=text;
+  const sem={enabled:true,adapter:'codex_exec',environment:'personal',revision:1,freshness:'pending',pending_observations:1,last_success:null,last_error:null,unsupported_observations:0,runs:[],proposals:[],items:[{id:'machine-one',key:'one',category:'progress',content:'Report with evidence',status:'open',epistemic:'reported',owner:'machine',pinned:false,source_current:true,conflicts:[],evidence:[]}]};
+  context.sem=sem;call('renderTracking(sem)');
+  function walk(node){return [node,...node.children.flatMap(walk)];}
+  walk(semanticRoot).find(n=>n.text==='수정').onclick();
+  const editor=ids.get('semantic-editor'),input=walk(editor).find(n=>n['aria-label']==='의미 분석 항목 수정');
+  input.value='unsaved semantic correction';input.oninput();context.sem={...sem,revision:2,pending_observations:2};call('renderTracking(sem)');
+  assert.equal(input.value,'unsaved semantic correction');assert(walk(editor).includes(input));
+  let finishSemantic;context.api=()=>new Promise(r=>finishSemantic=r);let liveUpdates=0;context.refreshOpen=async()=>{liveUpdates++;};
+  const running=walk(ids.get('semantic-state')).find(n=>n.text==='Semantic Refresh').onclick();
+  call("navigateTask('other-task')");finishSemantic({model_called:true,operations:1,usage:{input_tokens:10,output_tokens:2}});await running;
+  assert.equal(liveUpdates,0);assert.equal(input.value,'unsaved semantic correction');
+  console.log('Semantic rendering retains correction drafts and rejects old-task completion');
   console.log('Live/manual refresh, retained evidence/drafts, pagination and navigation races passed');
 })().catch(e=>{console.error(e);process.exitCode=1});

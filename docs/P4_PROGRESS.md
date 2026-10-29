@@ -1,5 +1,7 @@
 # P4: Optional local semantic suggestions (experimental)
 
+Historical milestone record. See [M2 progress](M2_PROGRESS.md) for the current semantic pipeline and live adapter results.
+
 Status: **partial experiment, not full semantic reconciliation**. The normal dashboard starts with analysis disabled. An explicit server flag enables a manual action; collection, polling and ordinary dashboard views never invoke a model. No network endpoint or model can be supplied by a client. The experimental implementation connects only to `127.0.0.1:11434` and requests the fixed `llama3.2:latest` model after checking local GGUF metadata. Its operation assumes the local Ollama service honestly serves its reported local model; it is not a network security audit of that separate service.
 
 ## Behavior and safeguards
@@ -30,3 +32,8 @@ Ollama's official [generate API](https://docs.ollama.com/api/generate) documents
 ## M1 scope note
 
 M1 does not extend this experiment, add providers, alter model choice or enable analysis. Resource discovery, plan projection, live updates and runtime recovery are deterministic and make no LLM calls. The configured M1 development instance has analysis disabled; the M1 work is documented separately in [M1 progress](M1_PROGRESS.md).
+
+
+## M2 follow-up (2026-10-29)
+
+The statements above describe the earlier milestone. [M2](M2_PROGRESS.md) now implements separate task/session semantic cursors and a bounded multi-session patch pipeline through SemanticModelAdapter, with real personal Codex validation and a partially live-verified ACP transport. The original collector, many-to-many links, human View, review cursors and default-off legacy Ollama experiment are preserved. Target ACP authentication/streaming and real-work usefulness remain open; see M2 for current evidence and limits.

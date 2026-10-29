@@ -1,5 +1,7 @@
 # P2: Task registry (in progress)
 
+Historical milestone record. See [M2 progress](M2_PROGRESS.md) for the current semantic pipeline and live adapter results.
+
 The registry is local Python/SQLite task-core functionality. P1 remains in progress. A prototype dashboard is described in [P3 progress](P3_PROGRESS.md); automatic semantic reconciliation is not implemented.
 
 ## Implemented
@@ -28,3 +30,8 @@ More integration and concurrency tests remain, as does a dashboard control for c
 Automatic resource candidates are projections of retained source facts, scoped through active task/session links. A candidate never creates or edits a manual Resource until explicit confirmation; exact already-registered global URLs can be reused. Candidate confirmation in one task does not confirm it in another. Branches, URL-less ticket keys and bare commit hashes include workspace scope, preventing identical names in different repositories from becoming one resource. Human edits/archives are retained and reflected as such. Every external status remains unknown.
 
 The existing Resource table is reused for confirmed connections. Small auxiliary fact/choice/Git snapshot tables retain provenance and freshness. Recognized bare ticket keys may join one unambiguous URL in the same workspace; colliding hosts remain separate candidates. Contribution metadata editing still has no dedicated dashboard control. Automatic resource discovery is not automatic semantic task attribution.
+
+
+## M2 follow-up (2026-10-29)
+
+The statements above describe the earlier milestone. [M2](M2_PROGRESS.md) now implements separate task/session semantic cursors and a bounded multi-session patch pipeline through SemanticModelAdapter, with real personal Codex validation and a partially live-verified ACP transport. The original collector, many-to-many links, human View, review cursors and default-off legacy Ollama experiment are preserved. Target ACP authentication/streaming and real-work usefulness remain open; see M2 for current evidence and limits.

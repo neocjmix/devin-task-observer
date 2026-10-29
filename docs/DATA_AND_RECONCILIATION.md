@@ -58,3 +58,8 @@ Use a strict, versioned patch JSON schema and validate output again in the deter
 Codex CLI: noninteractive execution, isolated working directory, bounded prompt, output artifact, timeout and exit-status checks; do not assume token usage is always present. Devin ACP: negotiate capabilities, create a **new analysis session**, submit prompt, consume streamed chunks to a terminal result, reject unauthorized tool requests, handle disconnects, timeouts, cancellation and unsupported functionality. Session creation/streaming details must be verified against installed Devin implementation before enabling it.
 
 No semantic checkpoint advancement until an accepted patch or durable no-change result commits. Never replay an analysis output as a trusted fact merely because it conforms to JSON schema.
+
+
+## M2 implementation record (2026-10-29)
+
+The bounded manual semantic vertical slice is implemented on the existing branch. Personal Codex exec was run with two synthetic session sources and with actual synthetic Devin Desktop sessions through the browser. Safe machine-owned patches, separate semantic cursors, human preservation, usage/budgets, retry and failure isolation are implemented. After an initial auth failure, personal browser reauthentication succeeded and actual Devin ACP new-session streaming plus the two-session patch integration test passed. Dangerous tool denial is mock-tested and internal organizational policy/isolation still require target-environment signoff. This does not close the real-work dogfood/product-quality gate. See [M2 implementation, measured usage, acceptance evidence and limitations](M2_PROGRESS.md). The normative contracts above remain the baseline.

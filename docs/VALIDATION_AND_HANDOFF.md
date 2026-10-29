@@ -52,3 +52,12 @@ Implement a single complete vertical slice first, with synthetic labeled scenari
 Acceptance metrics: percentage of status questions answered without reopening Devin, unsupported-claim and omission rates against labeled scenarios, repeated-update duplicate rate, time to find blockers/next action, semantic tokens per useful update and number of user approvals. Record unresolved gaps and semantic staleness.
 
 The next critical path after M1 is **M2**, before optional polish and broad compatibility work. The experimental P4 single-message local-model note proposal must not be mistaken for multi-session semantic reconciliation.
+
+
+## M2 adapter verification and environment boundary
+
+Primary development/testing adapter: **Codex CLI** in a personal environment. Target internal adapter: **Devin ACP**, using only newly created isolated semantic-analysis sessions; existing task sessions are read-only. The earlier Ollama proof of concept is not the target inference path.
+
+Acceptance tests: mock adapter parity; Codex CLI real noninteractive execution and schema validation; subprocess timeout, nonzero exit, invalid JSON, interrupted run and duplicate replay; ACP capability negotiation, new-session-only invariant, streamed output assembly, tool-permission denial, disconnect, cancellation, auth failure, usage-unknown and concurrent requests. Distinguish mocked ACP tests from real Devin ACP integration; target environment signoff requires live verification. No hidden fallback to an external provider.
+
+Company session content must never be sent to personal Codex, public API endpoints or personal GitHub. Internal deployment must explicitly select the approved Devin ACP adapter; missing ACP access fails closed while deterministic dashboard remains available. Document operational token/call limits and any unmetered provider behavior.

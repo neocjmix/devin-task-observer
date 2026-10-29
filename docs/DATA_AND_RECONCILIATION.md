@@ -45,3 +45,16 @@ Use deterministic idempotency keys tied to task, source delta identity, view rev
 Policy: safe additive evidence-backed updates can auto-apply to machine-owned projection. Human approval is reserved for view structure changes, destructive effects, uncertain conflict resolution and changes to human-authored content. Confidence scores alone never constitute verification. A claim's evidence may be agent-reported rather than independently verified; keep this distinction in UI.
 
 Cost: zero-token reads; no LLM for unchanged input; manual semantic refresh first; per-task/daily hard budgets; cache by relevant delta + view revision + model/prompt version; persist usage and freshness. The current P4 single-node Ollama proposal is a plumbing experiment, **not** this protocol.
+
+
+## Semantic model adapter contract (normative)
+
+`analyze({taskId,viewRevision,viewContract,affectedItems,evidenceDelta,limits}) -> {proposal,usage,providerRunId,diagnostics}`.
+
+Provider implementations: `CodexExecAdapter` for personal development/tests, `DevinAcpAdapter` for internal production. Adapters must not own state, mutate task views, or contact existing work sessions. A separate isolated analysis run/session receives only bounded, selected evidence; tool/permission requests must be denied unless specifically needed and approved.
+
+Use a strict, versioned patch JSON schema and validate output again in the deterministic Core. Include stable evidence IDs, expected revision, operation IDs, uncertainty and source attribution. Usage may be unavailable: represent it as unknown rather than zero. Enforce hard limits before starting a run where measurable; when provider quotas cannot be guaranteed, expose this limitation and fail safely under configured call limits.
+
+Codex CLI: noninteractive execution, isolated working directory, bounded prompt, output artifact, timeout and exit-status checks; do not assume token usage is always present. Devin ACP: negotiate capabilities, create a **new analysis session**, submit prompt, consume streamed chunks to a terminal result, reject unauthorized tool requests, handle disconnects, timeouts, cancellation and unsupported functionality. Session creation/streaming details must be verified against installed Devin implementation before enabling it.
+
+No semantic checkpoint advancement until an accepted patch or durable no-change result commits. Never replay an analysis output as a trusted fact merely because it conforms to JSON schema.

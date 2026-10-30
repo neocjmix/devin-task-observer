@@ -4,6 +4,11 @@ Goal: resume 5+ asynchronous Devin tasks without opening every session. Best eff
 
 Run one slice per Codex execution; commit and push after tests. Do not mistake proposed UI for implemented behavior.
 
+2026-10-31 status: **S0 implemented and tested**, see [UI-V2-S0 evidence and S1 entry conditions](slices/UI-V2-S0.md).
+S1–S8 remain planned. The current runtime still uses NSMenu; no storage migration or popover was added.
+The v1 sources cannot yet supply lifecycle, read counts, typed intervention, session tokens or locators.
+S1 must gate those features instead of manufacturing the example screen values.
+
 S0: Read-only normalized projections and synthetic fixtures. Preserve item-level actor/time, many-to-many task-session mapping, last_good and errors. No storage migration.
 
 S1: NSPopover prototype with 420x600pt reference, task home, filters, attention first, collector health, scroll and keyboard navigation. Compare PyObjC native vs WKWebView; keep NSMenu fallback.

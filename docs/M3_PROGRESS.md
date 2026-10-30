@@ -1,5 +1,9 @@
 # M3 — Cooperative Task Tracking
 
+2026-10-31 후속 UI V2: [UI-V2-S0](slices/UI-V2-S0.md)의 순수 읽기 투영·합성 fixture를 추가했다.
+M3 저장·트랜잭션·NSMenu 동작은 변경하지 않았다. 신규 19개 통과, 전체 292개 실행·290 통과·
+기존 실제 모델 2 skip·실패 0. S1 팝오버와 이후 기능은 아직 계획이며, 아래 M3 실증과 구분한다.
+
 2026-10-30. `p0/desktop-probe`와 기존 [Draft PR #1](https://github.com/neocjmix/devin-task-observer/pull/1)을 이어서 작업했다.
 M3-S02/S03의 시작 기준선은 M3-S01 커밋 `65420919b11b75acc2f8eae630b7ee0ddb02a3ba`다.
 

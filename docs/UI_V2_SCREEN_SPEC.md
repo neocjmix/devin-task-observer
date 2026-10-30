@@ -63,3 +63,8 @@ System collection failure: header alert, last successful collection time, retry/
 
 ## Implementation reality
 Current code: observer/menu.py NSMenu; observer/state_schema.py v1 (no task lifecycle/read cursor/resource collection/session locator/token metrics). docs/M3_PROGRESS.md and docs/slices/M3-S04.md document tested scope. UI design is NOT a claim that these new features exist. Never use synthetic “M3 합성 파서” strings as fixed product copy. Use [roadmap](UI_V2_ROADMAP.md) S0–S8 one per Codex run and report exact test evidence.
+
+2026-10-31: [S0](slices/UI-V2-S0.md) adds `observer/ui_projection.py` and synthetic inputs in
+`tests/fixtures/ui_v2/`. This is a pure data projection, not a rendered UI. Unsupported screen fields
+are capability-gated; fixtures do not invent live lifecycle, unread, typed intervention, token or locator data.
+Existing NSMenu and persisted v1 schemas remain unchanged.

@@ -45,11 +45,14 @@
       const preferred = attention.length ? attention : active.filter(item => item.role === 'situation');
       const latest = (preferred.length ? preferred : active)
         .sort((a, b) => (milliseconds(b.updated_at) || 0) - (milliseconds(a.updated_at) || 0) || String(a.item_id).localeCompare(String(b.item_id)))[0];
+      const reportTimes = Object.values(projection.contributions?.[task.task_id] || {}).map(edge => edge.last_report_at).filter(stamp => milliseconds(stamp) != null);
+      const readStatus = task.read_state?.status || 'unknown';
       return {id: task.task_id, title: task.metadata ? task.metadata.title : task.task_id,
         summary: latest ? latest.title + ' · ' + valueText(latest.value) : task.display_origin === 'unavailable' ? '표시할 정상 기록 없음' : '아직 추적 항목이 없습니다.',
         source: latest ? actorName(latest.updated_by, projection) : null,
         updatedAt: latest ? latest.updated_at : null,
         attention: attention.length > 0, lifecycle: management(task).lifecycle, observing: observing(task),
+        unread: readStatus === 'unread', readStatus, lastReportTime: reportTimes.length ? Math.max(...reportTimes.map(milliseconds)) : null,
         origin: task.display_origin, error: task.health !== 'ok' || (task.projection_errors || []).length > 0,
         task};
     });
@@ -64,17 +67,18 @@
     if (runtime.refresh && runtime.refresh.ok === false) diagnostics.push(valueText(runtime.refresh));
     diagnostics.push(...(health.state_errors || []).map(valueText));
     diagnostics.push(...(observations.warnings || []).map(valueText));
+    if (health.read_cursor_error) diagnostics.push('확인 위치: ' + valueText(health.read_cursor_error));
     const taskErrors = taskRows(projection).filter(row => row.error);
     taskErrors.forEach(row => diagnostics.push(row.title + ': ' + valueText([...(row.task.errors || []), ...(row.task.projection_errors || [])])));
     const failed = Boolean(collector.last_error || (runtime.refresh && runtime.refresh.ok === false));
     return {lastSuccess: collector.last_success, diagnostics: [...new Set(diagnostics)],
       warning: diagnostics.length > 0,
-      label: failed ? '수집 실패' : taskErrors.length || (health.state_errors || []).length ? '기록 확인 필요' : (observations.warnings || []).length ? '관측 확인 필요' : runtime.running === false ? '관측 중지' : collector.last_success ? '관측 정상' : '수집 기록 없음'};
+      label: failed ? '수집 실패' : taskErrors.length || (health.state_errors || []).length ? '기록 확인 필요' : health.read_cursor_error ? '확인 위치를 읽지 못했습니다' : (observations.warnings || []).length ? '관측 확인 필요' : runtime.running === false ? '관측 중지' : collector.last_success ? '관측 정상' : '수집 기록 없음'};
   }
   function filterRows(rows, query, filter) {
     const needle = query.trim().toLocaleLowerCase();
-    return rows.filter(row => (filter === 'archive' ? row.lifecycle === 'completed' : row.lifecycle !== 'completed') && (filter !== 'errors' || row.error) && (filter !== 'attention' || row.attention) && (!needle || (row.title + '\n' + row.summary).toLocaleLowerCase().includes(needle)))
-      .sort((a, b) => Number(Boolean(b.attention)) - Number(Boolean(a.attention)));
+    return rows.filter(row => (filter === 'archive' ? row.lifecycle === 'completed' : row.lifecycle !== 'completed') && (filter !== 'errors' || row.error) && (filter !== 'attention' || row.attention) && (filter !== 'new' || row.unread) && (!needle || (row.title + '\n' + row.summary).toLocaleLowerCase().includes(needle)))
+      .sort((a, b) => Number(Boolean(b.attention)) - Number(Boolean(a.attention)) || Number(Boolean(b.unread)) - Number(Boolean(a.unread)) || (b.lastReportTime || 0) - (a.lastReportTime || 0) || a.id.localeCompare(b.id));
   }
   function roleGroups(projection, taskId) {
     const items = Object.values((projection.items || {})[taskId] || {}).filter(item => !item.archived);
@@ -195,25 +199,33 @@
     text($('error-count'), all.filter(row => row.error && row.lifecycle !== 'completed').length);
     text($('attention-count'), all.filter(row => row.attention && row.lifecycle !== 'completed').length);
     text($('archive-count'), all.filter(row => row.lifecycle === 'completed').length);
+    const current = all.filter(row => row.lifecycle !== 'completed');
+    const unknownReads = current.filter(row => !['read', 'unread'].includes(row.readStatus)).length;
+    const unreadCount = current.filter(row => row.unread).length;
+    text($('new-count'), unknownReads && unknownReads === current.length ? '—' : String(unreadCount) + (unknownReads ? '?' : ''));
+    $('filter-new').title = unknownReads ? '확인된 새 보고 태스크 ' + unreadCount + '개 · 확인 위치를 알 수 없는 태스크 ' + unknownReads + '개' : '새 보고가 있는 태스크 ' + unreadCount + '개';
+    $('filter-new').hidden = !state.projection.capabilities?.task_read_cursor;
     $('filter-archive').hidden = !lifecycle;
     $('filter-attention').hidden = !state.projection.capabilities?.typed_item_roles;
     $('filter-all').setAttribute('aria-pressed', String(state.filter === 'all'));
     $('filter-errors').setAttribute('aria-pressed', String(state.filter === 'errors'));
     $('filter-attention').setAttribute('aria-pressed', String(state.filter === 'attention'));
     $('filter-archive').setAttribute('aria-pressed', String(state.filter === 'archive'));
+    $('filter-new').setAttribute('aria-pressed', String(state.filter === 'new'));
     const list = $('task-list');
     const existing = new Map(Array.from(list.children).map(card => [card.dataset.taskId, card]));
     rows.forEach((row, index) => {
       let card = existing.get(row.id);
       if (!card) {
         card = node('button', 'task-card'); card.type = 'button'; card.dataset.taskId = row.id;
-        const heading = node('div', 'task-heading'); heading.append(node('span', 'task-icon'), node('span', 'task-title'), node('span', 'task-observation'));
+        const heading = node('div', 'task-heading'); heading.append(node('span', 'task-icon'), node('span', 'task-title'), node('span', 'task-new'), node('span', 'task-observation'));
         card.append(heading, node('p', 'task-summary'), node('div', 'task-source'), node('div', 'task-warning'));
         card.addEventListener('click', () => openTask(row.id));
       }
       text(card.querySelector('.task-icon'), row.error ? '!' : '◌');
       card.querySelector('.task-icon').setAttribute('aria-hidden', 'true');
       text(card.querySelector('.task-title'), row.title);
+      text(card.querySelector('.task-new'), '새 보고'); card.querySelector('.task-new').hidden = !row.unread;
       const pause = card.querySelector('.task-observation'); text(pause, '⏸'); pause.hidden = row.observing || row.lifecycle == null; pause.title = '태스크 자동 반영 꺼짐'; pause.setAttribute('aria-label', '태스크 자동 반영 꺼짐');
       text(card.querySelector('.task-summary'), row.summary);
       text(card.querySelector('.task-source'), row.source ? row.source + ' · ' + timeLabel(row.updatedAt) : '');
@@ -348,6 +360,16 @@
     const view = {root: node('div'), scroll: 0, items: new Map(), sessions: new Map(), history: [], historyLoaded: false, historyMore: true, historyBefore: null, historyPending: false, notePending: false, draftRevision: null, noteConflict: false};
     view.notice = node('p', 'panel'); view.root.append(view.notice);
     view.report = node('p', 'muted'); view.root.append(view.report);
+    view.readPanel = node('div', 'read-panel'); view.readStatus = node('p', 'muted'); view.markRead = node('button', 'action-button', '여기까지 확인'); view.readMessage = node('p', 'action-message'); view.readMessage.setAttribute('role', 'status'); view.readPanel.append(view.readStatus, view.markRead, view.readMessage); view.root.append(view.readPanel);
+    view.markRead.addEventListener('click', () => {
+      const task = state.projection.tasks[taskId]; const position = task?.read_state;
+      if (!canWrite(task) || view.readPending || position?.status === 'unavailable' || !Number.isSafeInteger(position?.last_report_revision) || position.last_report_revision < 1) return;
+      view.readPending = true; view.markRead.disabled = true;
+      request('mark_read', taskId, {expected_revision: task.displayed_revision, through_report_revision: position.last_report_revision}, response => {
+        view.readPending = false; actionMessage(view.readMessage, response.ok ? '확인 위치를 저장했습니다.' : failure(response), !response.ok);
+        const latest = state.projection.tasks[taskId]; view.markRead.disabled = !canWrite(latest) || latest?.read_state?.status === 'unavailable';
+      });
+    });
     view.roles = node('div'); view.root.append(view.roles);
     view.resourceSection = section(view.root, '작업 리소스');
     createResourceView(view, taskId);
@@ -507,6 +529,10 @@
     const edges = state.projection.contributions?.[taskId] || {};
     const reports = Object.values(edges).map(edge => edge.last_report_at).filter(Boolean).sort((a, b) => milliseconds(b) - milliseconds(a));
     text(view.report, reports.length ? '최근 보고 · ' + timeLabel(reports[0]) : '아직 보고된 내용이 없습니다.');
+    const read = task.read_state || {status: 'unknown', last_report_revision: null};
+    view.readPanel.hidden = !state.projection.capabilities?.task_read_cursor;
+    text(view.readStatus, ({unread: '새 보고가 있습니다.', read: '현재 보고를 확인했습니다.', unknown: '아직 보고의 확인 위치를 알 수 없습니다.', unavailable: '확인 위치를 읽지 못했습니다. 진단을 확인하세요.'})[read.status] || '확인 위치 정보 없음');
+    view.markRead.disabled = view.readPending || !canWrite(task) || ['read', 'unavailable'].includes(read.status) || !Number.isSafeInteger(read.last_report_revision) || read.last_report_revision < 1;
     const groups = roleGroups(state.projection, taskId);
     const roleSignature = JSON.stringify(groups);
     if (view.roleSignature !== roleSignature) {
@@ -664,7 +690,7 @@
   }
   function start() {
     $('search').addEventListener('input', event => { state.query = event.target.value; renderHome(); });
-    ['all', 'errors', 'attention', 'archive'].forEach(filter => $('filter-' + filter).addEventListener('click', () => { state.filter = filter; renderHome(); }));
+    ['all', 'errors', 'attention', 'new', 'archive'].forEach(filter => $('filter-' + filter).addEventListener('click', () => { state.filter = filter; renderHome(); }));
     $('refresh').addEventListener('click', () => post('refresh'));
     $('back').addEventListener('click', back);
     document.addEventListener('keydown', event => {

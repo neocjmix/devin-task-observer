@@ -69,3 +69,5 @@ M3-S01에서 새 태스크 상태는 파일을 원본으로 삼는다. 기존 SQ
 | [UI-V2-S5](slices/UI-V2-S5.md) | 세션 상세·보고 설정·중복 제거 토큰 지표 | 관련 Python 61 통과, 실제 개인 합성 Devin/ATIF 대조, 원본 불변 확인 |
 
 | [UI-V2-S6](slices/UI-V2-S6.md) | 세션 복귀 조사·ID 복사·실행 중 앱 활성화 | exact session URL은 미지원; 안전한 fallback Python 15 및 JS 회귀 통과 |
+
+| [UI-V2-S7](slices/UI-V2-S7.md) | 명시적 확인 위치·새 보고·정렬 | 관련 Python 45 통과, thread race·task revision 불변 검증; 실제 UI는 S8 |

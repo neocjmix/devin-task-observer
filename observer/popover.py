@@ -17,6 +17,7 @@ from .ui_projection import project
 from .ui_actions import response
 from .ui_native import finish
 from .session_usage import UsageCache
+from .ui_reads import ReadCursors
 
 ASSETS = Path(__file__).with_name('ui_v2')
 
@@ -35,6 +36,7 @@ def wire_value(value):
 def acquire(root, config, config_path, runtime=None, usage_cache=None, force_usage=False):
     from .app import load_config
     rows, activity, errors, facts, usage = [], {}, [], None, None
+    cursors, cursor_error = None, None
     try:
         if load_config(config_path) != config:
             errors.append({'code': 'configuration_changed', 'message': '설정이 변경됐습니다. Observer를 재시작하세요.'})
@@ -44,6 +46,10 @@ def acquire(root, config, config_path, runtime=None, usage_cache=None, force_usa
     except (ValueError, OSError) as error:
         errors.append({'code': 'configuration_error', 'message': str(error)})
     try:
+        try:
+            cursors = ReadCursors(root).snapshot()
+        except (StateError, ValueError, OSError) as error:
+            cursor_error = {'code': getattr(error, 'code', 'read_cursor_error'), 'message': str(error)}
         rows = CooperativeState(root, lock_timeout=.25).list()
         for row in rows:
             state = row.get('state') if row['health'] == 'ok' else row.get('last_good')
@@ -54,7 +60,8 @@ def acquire(root, config, config_path, runtime=None, usage_cache=None, force_usa
     except (StateError, OSError, ValueError) as error:
         errors.append({'code': getattr(error, 'code', 'state_unavailable'), 'message': str(error)})
     run = runtime.snapshot() if runtime else {'running': service_running(config), 'collector': collector_status(config)}
-    return project(rows, observations=facts, session_activity=activity, runtime=run, state_errors=errors, session_usage=usage)
+    return project(rows, observations=facts, session_activity=activity, runtime=run, state_errors=errors,
+                   session_usage=usage, read_cursors=cursors, read_cursor_error=cursor_error)
 
 
 class ProjectionController:
@@ -236,7 +243,7 @@ def run_native(controller, *, show=False, probe=None):
             if value != self.previous:
                 self.previous = value
                 health = value['health']
-                troubled = bool(health['state_errors'] or
+                troubled = bool(health['state_errors'] or health.get('read_cursor_error') or
                                 ((health['runtime'] or {}).get('collector') or {}).get('last_error') or
                                 ((health['observations'] or {}).get('warnings')) or
                                 any(t['health'] != 'ok' or t['projection_errors'] for t in value['tasks'].values()))

@@ -551,6 +551,10 @@
         "previous_observation_enabled"
       ],
       "additionalProperties": false
+    },
+    "last_report_revision": {
+      "type": "integer",
+      "minimum": 1
     }
   },
   "required": [

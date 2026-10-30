@@ -162,6 +162,7 @@ class CooperativeState:
                 if len(ids) != len(set(ids)):
                     raise StateError('validation_error', 'an item may be changed once per report')
                 value['revision'] += 1
+                value['last_report_revision'] = value['revision']
                 value['updated_at'] = now()
                 value['updated_by'] = actor.copy()
                 contribution['last_report_at'] = value['updated_at']

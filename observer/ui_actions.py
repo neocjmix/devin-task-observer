@@ -16,7 +16,8 @@ def dispatch(root, body):
                'resource_open': {'resource_id'}, 'resource_copy': {'resource_id'},
                'lifecycle': {'completed'}, 'observation': {'enabled'},
                'reporting': {'session_id', 'enabled'},
-               'session_copy': {'session_id'}, 'devin_activate': {'session_id'}}
+               'session_copy': {'session_id'}, 'devin_activate': {'session_id'},
+               'mark_read': {'through_report_revision'}}
     if action not in allowed:
         raise ValueError('unsupported UI action')
     keys = {'action', 'task_id', 'request_id'} | allowed[action]
@@ -70,6 +71,9 @@ def dispatch(root, body):
         return core.observation(task_id, body.get('enabled'), revision, rid)
     if action == 'reporting':
         return core.reporting(task_id, body.get('session_id'), body.get('enabled'), revision, rid)
+    if action == 'mark_read':
+        from .ui_reads import ReadCursors
+        return ReadCursors(root).mark(task_id, revision, body.get('through_report_revision'), rid)
     _validate(body.get('item_id'), ID)
     return core.pin(task_id, body['item_id'], body.get('pinned'), revision, rid)
 

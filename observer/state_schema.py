@@ -79,6 +79,7 @@ MANAGEMENT = obj({'lifecycle': {'enum': ['active', 'completed']},
                   'observation_enabled': {'type': 'boolean'},
                   'previous_observation_enabled': {'type': 'boolean'}})
 TASK['properties']['management'] = MANAGEMENT
+TASK['properties']['last_report_revision'] = REV
 DEFAULT_MANAGEMENT = {'lifecycle': 'active', 'observation_enabled': True,
                       'previous_observation_enabled': True}
 
@@ -186,6 +187,8 @@ def validate(value, kind):
             if not ids or len(ids) != len(set(ids)):
                 raise ValueError('$.changes.' + task_id + ': expected nonempty changes with unique item IDs')
     if kind == 'task':
+        if value.get('last_report_revision', 1) > value['revision']:
+            raise ValueError('last_report_revision exceeds task revision')
         management = task_management(value)
         if management['lifecycle'] == 'completed' and management['observation_enabled']:
             raise ValueError('completed task cannot have observation enabled')

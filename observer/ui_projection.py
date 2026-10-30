@@ -18,7 +18,7 @@ from .discovery import resource_key, scoped_resource
 CAPABILITIES = {
     'task_lifecycle': True,
     'task_observation_toggle': True,
-    'task_read_cursor': False,
+    'task_read_cursor': True,
     'typed_item_roles': True,
     'registered_resources': True,
     'session_tokens': True,
@@ -54,7 +54,7 @@ def _display_state(row):
 
 
 def project(task_snapshots, *, observations=None, session_activity=None,
-            runtime=None, state_errors=(), session_usage=None):
+            runtime=None, state_errors=(), session_usage=None, read_cursors=None, read_cursor_error=None):
     """Normalize existing v1 data without inferring semantics or task ownership.
 
     Input is internal JSON data: FileStore.list() envelopes, observations() output,
@@ -77,6 +77,7 @@ def project(task_snapshots, *, observations=None, session_activity=None,
             'observations': (None if observed is None else
                              {key: value for key, value in observed.items() if key != 'sessions'}),
             'usage': None if usage is None else {key: value for key, value in usage.items() if key != 'sessions'},
+            'read_cursor_error': deepcopy(read_cursor_error),
         },
     }
 
@@ -108,6 +109,15 @@ def project(task_snapshots, *, observations=None, session_activity=None,
             'plan_session_ids': [],
         }
         result['tasks'][task_id] = task
+        report_revision = (state or {}).get('last_report_revision')
+        cursor = deepcopy(((read_cursors or {}).get('cursors') or {}).get(task_id, {}))
+        through = cursor.get('through_report_revision')
+        read_status = ('unavailable' if read_cursor_error or origin != 'current' else
+                       'unknown' if report_revision is None or read_cursors is None else
+                       'unknown' if through is not None and through > report_revision else
+                       'read' if through == report_revision else 'unread')
+        task['read_state'] = {'status': read_status, 'last_report_revision': report_revision,
+                              'through_report_revision': through}
         result['items'][task_id] = {}
         result['contributions'][task_id] = {}
         if state is None:

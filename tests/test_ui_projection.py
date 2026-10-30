@@ -77,7 +77,7 @@ class ProjectionTests(unittest.TestCase):
         self.assertTrue(self.value['capabilities']['task_observation_toggle'])
         self.assertTrue(all(flag is False for name, flag in self.value['capabilities'].items()
                             if name not in ('typed_item_roles', 'registered_resources',
-                                            'task_lifecycle', 'task_observation_toggle', 'session_tokens')))
+                                            'task_lifecycle', 'task_observation_toggle', 'session_tokens', 'task_read_cursor')))
         self.assertTrue(all('role' not in item and 'attention_required' not in item
                             for items in self.value['items'].values() for item in items.values()))
         for task in self.value['tasks'].values():

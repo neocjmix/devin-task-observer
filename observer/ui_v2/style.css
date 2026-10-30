@@ -23,7 +23,7 @@ main { min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 8px; 
 .home-toolbar { display: flex; flex-direction: column; gap: 8px; }
 .search-label { display: block; }
 input[type="search"] { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; background: var(--card); }
-.filters { display: flex; gap: 4px; }
+.filters { display: flex; gap: 4px; flex-wrap: wrap; }
 .filters button { padding: 5px 10px; border-radius: 7px; font-size: 12px; color: var(--muted); }
 .filters button[aria-pressed="true"] { background: var(--card); color: var(--text); box-shadow: 0 1px 2px #00000012; }
 .filters span { margin-left: 3px; font-variant-numeric: tabular-nums; }
@@ -36,6 +36,7 @@ input[type="search"] { width: 100%; border: 1px solid var(--line); border-radius
 .task-icon { color: var(--muted); font-size: 12px; flex: 0 0 12px; }
 .task-title { font-size: 14px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
 .task-observation { margin-left: auto; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.task-new { display: inline-block; background: var(--accent); color: var(--card); font-size: 10px; border-radius: 4px; padding: 1px 4px; white-space: nowrap; }
 .task-summary { font-size: 13px; line-height: 1.5; margin: 5px 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .task-source { font-size: 11px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
 .task-warning { font-size: 11px; color: var(--warning); margin-top: 4px; }

@@ -68,6 +68,8 @@ from pathlib import Path
 from observer.cooperative import CooperativeState
 from observer.ui_projection import project
 from observer.session_usage import load_session_usage
+from observer.ui_reads import ReadCursors
+from observer.file_store import StateError
 with tempfile.TemporaryDirectory() as root:
     core = CooperativeState(root)
     core.create('ui-test', 'Synthetic explicit intervention', 'session-a')
@@ -102,7 +104,23 @@ with tempfile.TemporaryDirectory() as root:
     def record(sid, n):
         return {'id': sid, 'title': sid, 'workspace': '/synthetic', 'resource_mentions': [{'kind': 'pr', 'value': 'https://github.com/example/demo/pull/42', 'verification': 'mentioned', 'source_ref': 'mentions-v2', 'node_id': n, 'source_hash': 'a'*64}]}
     shared = project(core.list(), observations={'sessions': [record('session-a', 1), record('session-b', 2)]}, session_usage={'sessions': usage, 'stale': False, 'error': None, 'last_attempt': '2026-10-31T12:00:00+00:00'})
-    print(json.dumps({'active': active, 'off': off, 'completed': completed, 'restored': restored, 'shared': shared}))
+    core.reporting('other-task', 'session-a', True, 2)
+    core.report({'schema_version': 1, 'report_id': 'both-task-report', 'session_id': 'session-a', 'expected_revisions': {'ui-test': 8, 'other-task': 3}, 'changes': {task: [{'op': 'define', 'item_id': 'report-read', 'title': 'Report', 'value': 'New shared-session report', 'status': 'open', 'evidence': []}] for task in ['ui-test', 'other-task']}})
+    reads = ReadCursors(root)
+    read_before = project(core.list(), read_cursors=reads.snapshot())
+    state_before_mark = core.read('ui-test')['state']
+    reads.mark('ui-test', 9, 9, 'mark-a')
+    assert state_before_mark == core.read('ui-test')['state']
+    read_after = project(core.list(), read_cursors=reads.snapshot())
+    core.report({'schema_version': 1, 'report_id': 'racing-report', 'session_id': 'session-a', 'expected_revisions': {'ui-test': 9, 'other-task': 4}, 'changes': {task: [{'op': 'update', 'item_id': 'report-read', 'value': 'Newer report after display'}] for task in ['ui-test', 'other-task']}})
+    assert reads.mark('ui-test', 9, 9, 'old-mark')['changed'] is False
+    mark_error = None
+    try:
+        reads.mark('other-task', 4, 4, 'stale-mark')
+    except StateError as error:
+        mark_error = error.code
+    read_race = project(core.list(), read_cursors=reads.snapshot())
+    print(json.dumps({'active': active, 'off': off, 'completed': completed, 'restored': restored, 'shared': shared, 'read_before': read_before, 'read_after': read_after, 'read_race': read_race, 'mark_error': mark_error}))
 `], {cwd: path.join(__dirname, '..'), encoding: 'utf8', input: JSON.stringify(candidateResource)}));
 const actual = coreBoundary.active;
 assert.equal(ui.taskRows(actual)[0].attention, true);
@@ -144,6 +162,18 @@ assert.equal(ui.sessionActivity(measured).source, 'Devin Local');
 assert.equal(ui.sessionActivity({...measured, activity: {last_seen: '2027-01-01T00:00:00Z'}}).source, '보고 훅');
 assert.deepEqual(ui.usageRows({usage: null}).map(row => row.value), [null, null, null, null]);
 assert.equal(shared.tasks['ui-test'].usage, undefined);
+assert.equal(ui.filterRows(ui.taskRows(coreBoundary.read_before), '', 'new').length, 2);
+assert.equal(coreBoundary.read_after.tasks['ui-test'].read_state.status, 'read');
+assert.equal(coreBoundary.read_after.tasks['other-task'].read_state.status, 'unread');
+assert.equal(coreBoundary.read_race.tasks['ui-test'].read_state.status, 'unread');
+assert.equal(coreBoundary.read_race.tasks['ui-test'].read_state.through_report_revision, 9);
+assert.equal(coreBoundary.mark_error, 'revision_conflict');
+assert.deepEqual(ui.filterRows([
+  {id: 'old', lifecycle: 'active', attention: false, unread: false, lastReportTime: 1},
+  {id: 'recent', lifecycle: 'active', attention: false, unread: false, lastReportTime: 999},
+  {id: 'new', lifecycle: 'active', attention: false, unread: true, lastReportTime: 1},
+  {id: 'attention', lifecycle: 'active', attention: true, unread: false, lastReportTime: 1},
+], '', 'all').map(row => row.id), ['attention', 'new', 'recent', 'old']);
 
 // A small DOM harness exercises refresh and asynchronous action ownership.
 const vm = require('node:vm');
@@ -385,6 +415,39 @@ assert.ok(usagePanel.textContent.includes('사용량 정보 없음'));
 assert.ok(usagePanel.textContent.includes('source_read_failed'));
 assert.equal(walk(usagePanel).find(element => element.className === 'usage-grid').hidden, true);
 ids.get('back').fire('click');
+runtime.capabilities.task_read_cursor = true;
+runtime.tasks.a.read_state = {status: 'unread', last_report_revision: 9, through_report_revision: null}; runtime.tasks.a.displayed_revision = 10;
+const beforeReadRefresh = sent.length; window.Observer.receive(runtime);
+assert.equal(sent.length, beforeReadRefresh);
+assert.equal(ids.get('new-count').textContent, '1?');
+const markRead = walk(detail).find(element => element.tagName === 'BUTTON' && element.textContent === '여기까지 확인');
+assert.equal(markRead.disabled, false);
+ids.get('back').fire('click'); ids.get('filter-new').fire('click');
+assert.equal(ids.get('task-list').children.length, 1);
+ids.get('task-list').children[0].fire('click');
+assert.equal(sent.length, beforeReadRefresh);
+markRead.fire('click');
+assert.equal(sent.at(-1).action, 'mark_read');
+assert.equal(sent.at(-1).expected_revision, 10);
+assert.equal(sent.at(-1).through_report_revision, 9);
+const markRequest = sent.at(-1);
+runtime.tasks.a.read_state = {status: 'unread', last_report_revision: 11, through_report_revision: 9}; runtime.tasks.a.displayed_revision = 11;
+window.Observer.receive(runtime);
+window.Observer.actionResult({request_id: markRequest.request_id, ok: true, result: {changed: true}});
+assert.equal(sent.at(-1).action, 'state_refresh');
+assert.equal(runtime.tasks.a.read_state.status, 'unread');
+assert.ok(detail.textContent.includes('새 보고가 있습니다.'));
+assert.equal(draft.value, 'edited after request');
+markRead.fire('click');
+assert.equal(sent.at(-1).expected_revision, 11);
+assert.equal(sent.at(-1).through_report_revision, 11);
+window.Observer.actionResult({request_id: sent.at(-1).request_id, ok: false, error: {code: 'revision_conflict'}});
+assert.ok(detail.textContent.includes('다른 업데이트가 있었습니다'));
+runtime.tasks.a.read_state.status = 'unavailable'; runtime.health.read_cursor_error = {code: 'invalid_read_cursors', message: 'Synthetic damaged cursor'};
+window.Observer.receive(runtime);
+assert.equal(markRead.disabled, true);
+assert.equal(ids.get('new-count').textContent, '—');
+assert.ok(ids.get('diagnostic-text').textContent.includes('Synthetic damaged cursor'));
 runtime.read_only = true; window.Observer.receive(runtime);
 assert.equal(draft.disabled, true);
 assert.equal(window.Observer.receive({projection_version: 99}), false);

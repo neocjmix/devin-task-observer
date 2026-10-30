@@ -126,3 +126,23 @@ class UIActionTests(unittest.TestCase):
         self.assertEqual(activated['result']['native_action']['kind'], 'devin_existing')
         self.assertFalse(response(self.root, self.request('session_copy', session_id='unlinked'))['ok'])
         self.assertFalse(response(self.root, self.request('session_copy', session_id='devin://acp'))['ok'])
+
+    def test_read_mark_does_not_advance_task_revision_or_other_task_cursor(self):
+        from observer.ui_reads import ReadCursors
+        from observer.ui_projection import project
+        self.core.create('second', 'Second', 'session-a')
+        for task in ('task', 'second'):
+            self.core.reporting(task, 'session-a', True, 1)
+        self.core.report({'schema_version': 1, 'report_id': 'shared-report', 'session_id': 'session-a',
+            'expected_revisions': {'task': 2, 'second': 2}, 'changes': {task: [
+                {'op': 'define', 'item_id': 'p', 'title': 'Progress', 'value': 'reported', 'status': 'reported', 'evidence': []}
+            ] for task in ('task', 'second')}})
+        before = self.core.read('task')['state']
+        command = self.request('mark_read', expected_revision=3, through_report_revision=3)
+        self.assertTrue(response(self.root, command)['ok'])
+        self.assertEqual(self.core.read('task')['state'], before)
+        value = project(self.core.list(), read_cursors=ReadCursors(self.root).snapshot())
+        self.assertEqual(value['tasks']['task']['read_state']['status'], 'read')
+        self.assertEqual(value['tasks']['second']['read_state']['status'], 'unread')
+        broken = project(self.core.list(), read_cursor_error={'code': 'invalid_read_cursors'})
+        self.assertEqual(broken['tasks']['task']['read_state']['status'], 'unavailable')

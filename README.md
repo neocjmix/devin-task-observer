@@ -1,5 +1,7 @@
 # Devin Task Observer
 
+**설계 변경·플래닝 중 (2026-10-30):** [협조형 보고·파일 중심 상태·메뉴 막대 View 변경안](docs/DESIGN_CHANGE_PROPOSAL_2026-10-30_KO.md)을 먼저 읽으세요. 기존 작업 에이전트의 CLI/스킬 기반 능동보고, 직접 편집·검증 가능한 로컬 상태, Swift 최소화가 새 방향입니다. 아직 구현하지 않았으며 아래는 기존 SQLite·브라우저·수동 의미 분석 구현의 사용 기록입니다.
+
 Private, local-first task observability for Devin Desktop. The observer reads the source without controlling Devin and stores task data separately. Collection and dashboard viewing make no LLM calls and send no telemetry.
 
 See [implementation plan](docs/IMPLEMENTATION_PLAN.md).

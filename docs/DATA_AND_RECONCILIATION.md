@@ -1,5 +1,9 @@
 # Data and Reconciliation Specification
 
+## 2026-10-30 planned storage and reporting change
+
+[설계 변경안](DESIGN_CHANGE_PROPOSAL_2026-10-30_KO.md)의 파일 원본·직접 편집·버전 스키마·범위별 오류 격리 요구가 새 방향이다. 보고를 켠 작업 에이전트가 CLI로 의미 변경을 전달하고 Core가 검증하는 계약을 계획한다. 다대다·출처·인간 정보·충돌·신선도 보호는 유지한다. 파일 저장의 원자성, 보고와 checkpoint, 기존 SQLite의 전환은 아직 미설계·미구현이며 아래 DB 트랜잭션 보장을 새 저장 구조에 그대로 적용했다고 가정하지 않는다. 아래 내용은 기존 P0~M2 계약·구현 기록이다.
+
 ## Entities
 
 Task(id,title,description,lifecycle,createdAt,updatedAt); Session(id,provider,externalId,model,runtimeState,lastSeen,sourceVersion); Contribution(id,taskId,sessionId,role,scope,linkedBy,confidence,from,to) permits many-to-many relationships.

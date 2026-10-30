@@ -1,5 +1,9 @@
 # Validation, Security, and Handoff
 
+## 2026-10-30 planning boundary
+
+[새 설계 변경안](DESIGN_CHANGE_PROPOSAL_2026-10-30_KO.md)에 에이전트 능동보고·파일/스키마·메뉴 막대·스택 요구와 향후 검증 계획을 기록했다. 현재 단계는 플래닝이다. 보고 누락·계약 변경·다대다·상충 보고, 직접 파일 편집·불완전 저장·손상·동시 수정·복구, 브라우저 없는 메뉴 막대 조회와 실제 에이전트 비용을 새로 검증해야 한다. 기존 P0~M2 테스트 통과를 새 방향의 검증으로 간주하지 않는다. 아래 내용은 기존 구현의 단계·인수인계 기록이다.
+
 ## Phase gates and estimates
 
 P0: Personal Devin Desktop local-data and hook probe (4–12h). Go only if active sessions can be discovered and changed reliably via read-only access.

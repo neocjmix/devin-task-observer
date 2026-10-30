@@ -1,5 +1,9 @@
 # Devin Task Observer — Implementation Plan
 
+## 2026-10-30 design direction — planning only
+
+[설계 변경안](DESIGN_CHANGE_PROPOSAL_2026-10-30_KO.md)이 미래 설계에서 충돌하는 기존 방향보다 우선한다. 결정론적 관측은 유지하고, 선택적 에이전트 CLI/스킬 능동보고, 파일 중심 영속상태와 검증·내결함성, macOS 메뉴 막대 View, 익숙한 스택과 Swift 최소화를 계획한다. btw/fork는 제외하며 검색은 부차 후보다. 훅 방식과 기존 독립 분석 기능의 정리는 미결정이다. **구현·마이그레이션 승인이나 완료 기록이 아니다.** 아래 P0~M2 계획과 검증 기록은 기존 구현의 근거로 보존한다.
+
 Status: planning, 2026-10-27. Devin Desktop internals require verification on a personal installation.
 
 ## Objective and constraints

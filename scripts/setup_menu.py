@@ -17,6 +17,9 @@ import tempfile
 import venv
 import uuid
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from observer.paths import DEFAULT_CONFIG, DEFAULT_ROOT
+
 
 BUNDLE_ID = 'ai.neocjmix.devin-task-observer.menu'
 
@@ -82,12 +85,16 @@ def _sync_directory(path):
         os.close(directory)
 
 
-def upgrade_launcher(destination, python, config, state_root):
+def upgrade_launcher(destination, python, config, state_root, *, previous_config=None, previous_root=None):
     """Replace only an exact managed entry, keeping its original private backup.
 
     No package installation, app launch, bundle rebuild or service registration.
     py2app alias boot files are parsed as data; they are never executed here.
+    Rebinding requires both explicitly supplied previous paths. It does not move
+    any state files or infer paths from an unknown launcher.
     """
+    if (previous_config is None) != (previous_root is None):
+        raise ValueError('Previous config and state root must be provided together')
     destination, python, config, state_root, repository, launcher_root = _launcher_paths(
         destination, python, config, state_root)
     contents = destination / 'Contents'
@@ -123,7 +130,10 @@ def upgrade_launcher(destination, python, config, state_root):
     if bindings != {'DEFAULT_SCRIPT': str(entry), 'SCRIPT_MAP': {}} or injects != [[str(launcher_root)]]:
         raise ValueError('Alias boot script does not target the expected managed launcher path')
     desired = _entry_source(repository, config, state_root)
-    accepted = (desired, _entry_source(repository, config, state_root, 'observer.menu'))
+    old_config, old_root = ((Path(previous_config).expanduser().absolute(), Path(previous_root).expanduser().absolute())
+                            if previous_config is not None else (config, state_root))
+    accepted = (desired, _entry_source(repository, old_config, old_root),
+                _entry_source(repository, old_config, old_root, 'observer.menu'))
     if original not in accepted:
         raise ValueError('Managed entry was modified or uses different repository/config/state paths; preserving it')
     if original == desired:
@@ -196,9 +206,15 @@ def main(argv=None):
     app_options = parser.add_mutually_exclusive_group()
     app_options.add_argument('--app', type=Path, help='명시적으로 지정한 새 .app 경로에 얇은 로컬 실행기 생성')
     app_options.add_argument('--upgrade-app', type=Path, help='검증된 기존 로컬 alias 실행기만 백업 후 popover 기본 경로로 전환')
-    parser.add_argument('--config', type=Path, default=Path.home() / 'Library/Application Support/Devin Task Observer/config.json')
-    parser.add_argument('--root', type=Path, default=Path.home() / 'Library/Application Support/Devin Task Observer/state')
+    parser.add_argument('--config', type=Path, default=DEFAULT_CONFIG)
+    parser.add_argument('--root', type=Path, default=DEFAULT_ROOT)
+    parser.add_argument('--previous-config', type=Path, help='명시적 경로 변경 시 기존 실행기의 정확한 config 경로')
+    parser.add_argument('--previous-root', type=Path, help='명시적 경로 변경 시 기존 실행기의 정확한 state 경로')
     args = parser.parse_args(argv)
+    if (args.previous_config is None) != (args.previous_root is None):
+        parser.error('--previous-config and --previous-root are required together.')
+    if args.previous_config is not None and not args.upgrade_app:
+        parser.error('Previous paths are only accepted with --upgrade-app.')
     if sys.platform != 'darwin':
         parser.error('The native menu requires macOS. Core CLI/collector has no native dependency.')
     root = args.venv.expanduser().absolute()
@@ -209,7 +225,8 @@ def main(argv=None):
     if args.upgrade_app:
         if not root.is_dir():
             parser.error('An existing managed Python environment is required for upgrade.')
-        result = upgrade_launcher(args.upgrade_app, root / 'bin/python', args.config, args.root)
+        result = upgrade_launcher(args.upgrade_app, root / 'bin/python', args.config, args.root,
+                                  previous_config=args.previous_config, previous_root=args.previous_root)
         print(json.dumps({**result, 'python': str(root / 'bin/python'), 'auto_start_enabled': False}))
         return 0
     root.parent.mkdir(parents=True, exist_ok=True)

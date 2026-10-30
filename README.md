@@ -9,10 +9,12 @@
 ```sh
 ./observerctl configure --workspace /absolute/personal/workspace
 python3 scripts/setup_menu.py
-./observerctl integration install --workspace /absolute/personal/workspace --root /absolute/observer-state
-./observerctl state --root /absolute/observer-state create --task my-task --title '작업 제목'
-"$HOME/Library/Application Support/Devin Task Observer/menu-runtime/bin/python" -m observer.desktop --root /absolute/observer-state
+./observerctl integration install --workspace /absolute/personal/workspace
+./observerctl state create --task my-task --title '작업 제목'
+"$HOME/Library/Application Support/Devin Task Observer/menu-runtime/bin/python" -m observer.desktop
 ```
+
+기본 데이터 위치는 `~/.devin-task-observer/`입니다. 설정은 `config.json`, 태스크·이력·세션 문맥·UI 확인 위치는 `state/`, 결정론적 관측 캐시는 `observer.sqlite3`에 둡니다. CLI·수집기·기본 앱은 같은 기본 경로를 사용합니다. `--config`, `--root`, `configure --store`를 명시하면 해당 경로를 사용합니다. 일반 실행이나 `configure`는 이전 Application Support·실험실 경로의 데이터를 자동으로 옮기거나 병합하지 않습니다. 선택적 Python 런타임은 데이터와 별개로 기존 `~/Library/Application Support/Devin Task Observer/menu-runtime/`에 유지합니다.
 
 선택한 Devin 작업 공간의 새 세션에서 `observer-reporting 스킬로 my-task 자동 보고를 시작해`라고 요청합니다. 세션은 훅의 ID를 확인하고 연결·보고 ON·항목 정의를 수행합니다. 이후 중요한 변화는 세션이 판단해 보고합니다. 보고 중지는 같은 스킬로 요청합니다. 스킬은 도구 승인을 우회하지 않습니다. 기본 권한 모드에서는 명령 실행 승인이 필요할 수 있습니다.
 
@@ -20,7 +22,7 @@ python3 scripts/setup_menu.py
 
 등록 리소스와 자동 발견 후보는 구분합니다. 태스크 완료·관측 OFF는 해당 태스크의 자동 반영을 멈추며 공유 세션의 전역 수집은 계속됩니다. 세션 사용량은 확인된 로컬 기록의 합계이며 과금 총량을 보증하지 않습니다. 정확한 Devin 세션 탭 이동은 지원하지 않으며, 실행 중인 Devin 앱 활성화와 세션 ID 복사를 제공합니다.
 
-`collect`는 UI 없는 수집기입니다. `observer.desktop --snapshot`은 새 UI의 읽기 전용 JSON 투영을 출력합니다. `observer.desktop --legacy-menu` 또는 기존 `observerctl menu`는 이전 **NSMenu**를 실행합니다. 새 `.app`은 `python3 scripts/setup_menu.py --app /absolute/path/Observer.app --root /absolute/observer-state`로 만들 수 있습니다. 기존 관리형 앱은 같은 설정·상태 경로를 지정한 `--upgrade-app`으로만 전환하며, 런처를 확인하고 백업한 뒤 교체합니다. 수정되거나 다른 앱인 경우 거절합니다. Python과 Codex/Devin CLI는 앱에 포함하지 않습니다.
+`collect`는 UI 없는 수집기입니다. `observer.desktop --snapshot`은 새 UI의 읽기 전용 JSON 투영을 출력합니다. `observer.desktop --legacy-menu` 또는 기존 `observerctl menu`는 이전 **NSMenu**를 실행합니다. 새 `.app`은 `python3 scripts/setup_menu.py --app "$HOME/Applications/Devin Task Observer.app"`으로 만들 수 있습니다. 기존 관리형 앱은 `--upgrade-app`으로 런처를 확인하고 백업한 뒤 교체합니다. 데이터 위치를 명시적으로 변경할 때는 새 `--config`·`--root`와 정확한 기존 `--previous-config`·`--previous-root`를 함께 지정해야 합니다. 이 옵션은 검증된 실행기의 경로만 바꾸며 데이터 이동은 수행하지 않습니다. 수정된 런처·다른 앱·지정하지 않은 이전 경로는 거절합니다. Python과 Codex/Devin CLI는 앱에 포함하지 않습니다.
 
 일반 설치·실행·앱 전환은 로그인 자동 실행을 등록하지 않습니다. 기존 수집기·NSMenu의 선택적 자동 실행 계약은 [메뉴 실행 문서](docs/slices/M3-S02_MENU.md)에 보존돼 있습니다. 현재 Mac의 기존 로컬 앱 런처를 팝오버 기본 경로로 전환하고 실제 재실행·기존 태스크 표시·첫 수집 후 정상 상태를 확인했습니다. [S8 수용 결과](docs/slices/UI-V2-S8.md)는 합성 데이터의 화면 검증과 실제 개인 합성 세션 관측을 구분하며, VoiceOver 음성 출력과 에이전트 5–10개의 동시 실행은 미검증입니다.
 
@@ -62,7 +64,7 @@ The legacy collector/web runtime uses the Python standard library (tested with P
 ./observerctl status
 ```
 
-`configure` saves private settings in `~/Library/Application Support/Devin Task Observer/config.json`. Multiple `--workspace` options are supported. Optional `--source`, `--store`, `--port` and `--git /absolute/path/to/git` override the defaults. A missing/unusable Git executable disables Git facts, not Devin collection. The selected workspace must be a Git worktree root for Git facts; source sessions still work without Git. Observe only explicitly authorized personal workspaces.
+`configure` saves private settings in `~/.devin-task-observer/config.json`; the default observation database is `~/.devin-task-observer/observer.sqlite3`. This retained runtime uses the same current defaults as the native UI. Multiple `--workspace` options are supported. Optional `--source`, `--store`, `--port` and `--git /absolute/path/to/git` override the defaults; a top-level `--config` selects a different settings file. Startup and configuration never automatically migrate previous data locations. A missing/unusable Git executable disables Git facts, not Devin collection. The selected workspace must be a Git worktree root for Git facts; source sessions still work without Git. Observe only explicitly authorized personal workspaces.
 
 The dashboard prints its local address (default `http://127.0.0.1:8765`). It shows the last successful collection time and scoped warnings. Ctrl-C or SIGTERM shuts down safely; restart `run` with the same configuration to retain saved tasks, notes, pins, evidence and review positions. Temporary source failures retry with bounded backoff. Unsaved browser drafts survive live updates, but not a full browser reload.
 

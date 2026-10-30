@@ -10,6 +10,7 @@ from pathlib import Path
 from .discovery import sync_git
 from .devin_local import SourceIncomplete, read_sessions
 from .store import mark_source_unavailable, open_store, sync
+from .paths import DEFAULT_STORE
 
 
 def main():
@@ -17,7 +18,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--workspace', action='append', required=True, type=Path, help='personal workspace to observe; repeat for more')
     p.add_argument('--source', type=Path, default=home / '.local/share/devin/cli/sessions.db')
-    p.add_argument('--store', type=Path, default=home / 'Library/Application Support/Devin Task Observer/observer.sqlite3')
+    p.add_argument('--store', type=Path, default=DEFAULT_STORE)
     p.add_argument('--poll', type=float, help='repeat at this interval in seconds, minimum 1')
     args = p.parse_args()
     if args.poll is not None and args.poll < 1:

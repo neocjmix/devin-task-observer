@@ -25,6 +25,7 @@ from .discovery import task_candidates, confirm_candidate, task_git_status
 from .plans import task_plans
 from .reconciliation import projection as tracking_projection, refresh as semantic_refresh, correct_item, resolve_pending, validate_policy
 from .model_adapters import ModelError
+from .paths import DEFAULT_STORE
 
 
 def evidence_response(value):
@@ -378,7 +379,7 @@ def main(argv=None,semantic_policy=None):
     home=Path.home();p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--workspace',action='append',required=True,type=Path)
     p.add_argument('--source',type=Path,default=home/'.local/share/devin/cli/sessions.db')
-    p.add_argument('--store',type=Path,default=home/'Library/Application Support/Devin Task Observer/observer.sqlite3')
+    p.add_argument('--store',type=Path,default=DEFAULT_STORE)
     p.add_argument('--port',type=int,default=8765)
     p.add_argument('--enable-local-analysis',action='store_true',help='enable manually requested local model suggestions')
     p.add_argument('--semantic-config',type=Path,help='explicit personal Codex or approved internal ACP policy JSON')

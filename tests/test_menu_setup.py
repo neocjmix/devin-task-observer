@@ -158,6 +158,53 @@ class MenuSetupTests(unittest.TestCase):
                 self.assertEqual(entry.read_bytes(), original)
                 self.assertEqual(list(entry.parent.glob('*.bak')), [])
 
+    def test_explicit_rebind_preserves_old_entry_and_is_idempotent(self):
+        for module in ('observer.menu', 'observer.desktop'):
+            with self.subTest(module=module), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                app, python, config, state, entry = self.managed_alias(root)
+                repository = Path(__file__).resolve().parents[1]
+                entry.write_bytes(SETUP._entry_source(repository, config, state, module))
+                original = entry.read_bytes()
+                new_config = root / '.devin-task-observer/config.json'
+                new_config.parent.mkdir()
+                new_config.write_text('{}')
+                new_state = new_config.parent / 'state'
+                result = SETUP.upgrade_launcher(app, python, new_config, new_state,
+                                                previous_config=config, previous_root=state)
+                self.assertTrue(result['upgraded'])
+                self.assertEqual(Path(result['backup']).read_bytes(), original)
+                self.assertEqual(entry.read_bytes(), SETUP._entry_source(repository, new_config, new_state))
+                again = SETUP.upgrade_launcher(app, python, new_config, new_state,
+                                               previous_config=config, previous_root=state)
+                self.assertFalse(again['upgraded'])
+                self.assertEqual(len(list(entry.parent.glob('*.bak'))), 1)
+                self.assertFalse(new_state.exists())
+
+    def test_rebind_rejects_unpaired_or_wrong_old_paths_without_changing_entry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            app, python, config, state, entry = self.managed_alias(root)
+            original = entry.read_bytes()
+            new_config = root / 'new-config.json'
+            new_config.write_text('{}')
+            for previous in ({'previous_config': config}, {'previous_root': state},
+                             {'previous_config': root / 'wrong.json', 'previous_root': state},
+                             {'previous_config': config, 'previous_root': root / 'wrong-state'}):
+                with self.subTest(previous=previous), self.assertRaises(ValueError):
+                    SETUP.upgrade_launcher(app, python, new_config, root / 'new-state', **previous)
+                self.assertEqual(entry.read_bytes(), original)
+                self.assertEqual(list(entry.parent.glob('*.bak')), [])
+
+    def test_previous_path_cli_flags_require_upgrade_and_pair(self):
+        for options in (['--previous-config', '/old/config'], ['--previous-root', '/old/state'],
+                        ['--previous-config', '/old/config', '--previous-root', '/old/state']):
+            with self.subTest(options=options), contextlib.redirect_stderr(io.StringIO()), \
+                    patch.object(SETUP.subprocess, 'run', side_effect=AssertionError('no install or launch')), \
+                    self.assertRaises(SystemExit) as error:
+                SETUP.main(options)
+            self.assertEqual(error.exception.code, 2)
+
     def test_replacement_failure_retains_old_entry_and_durable_backup(self):
         with tempfile.TemporaryDirectory() as directory:
             app, python, config, state, entry = self.managed_alias(Path(directory))

@@ -196,6 +196,27 @@ class FileStore:
                     time.sleep(min(.02, max(0, deadline - time.monotonic())))
             if self._read_bytes(self.root / '.retired.json') is not None:
                 raise StateError('retired_store', 'This migrated store was retired by rollback; use the restored legacy backup', {'root': str(self.root)})
+            # Check after acquiring the original lock, including for instances
+            # created before relocation. Never follow a stale root implicitly.
+            relocation = self._read_bytes(self.root / '.relocated.json', limit=8192)
+            if relocation is not None:
+                try:
+                    marker = _decode(relocation)
+                    if (not isinstance(marker, dict) or
+                            set(marker) - {'schema_version', 'new_root', 'reason'} or
+                            type(marker.get('schema_version')) is not int or marker['schema_version'] != 1 or
+                            not isinstance(marker.get('new_root'), str) or
+                            '\x00' in marker['new_root'] or not Path(marker['new_root']).is_absolute() or
+                            ('reason' in marker and not isinstance(marker['reason'], str))):
+                        raise ValueError('Invalid relocation marker fields')
+                except (ValueError, TypeError) as exc:
+                    raise StateError('invalid_relocation_marker',
+                                     'State relocation record is damaged; old state is preserved and access is blocked',
+                                     {'root': str(self.root)}) from exc
+                raise StateError('relocated_store',
+                                 'Observer state moved to ' + marker['new_root'] +
+                                 '; refresh the installed skill and use the new --root path',
+                                 {'root': str(self.root), 'new_root': marker['new_root']})
             yield
         except OSError as exc:
             raise StateError("storage_io", "State file operation failed", {"reason": str(exc)}) from exc

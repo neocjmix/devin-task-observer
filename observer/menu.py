@@ -12,8 +12,7 @@ from pathlib import Path
 from .cooperative import CooperativeState
 from .file_store import StateError
 from .runtime import CollectorRuntime, collector_status, service_running
-
-DEFAULT_ROOT = Path.home() / 'Library/Application Support/Devin Task Observer/state'
+from .paths import DEFAULT_ROOT
 
 
 def _text(value, limit=180):

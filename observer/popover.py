@@ -10,7 +10,7 @@ import threading
 from .cooperative import CooperativeState
 from .file_store import StateError
 from .integration import session_activity
-from .menu import DEFAULT_ROOT
+from .paths import DEFAULT_ROOT
 from .runtime import CollectorRuntime, collector_status, service_running
 from .state_observations import observations
 from .ui_projection import project

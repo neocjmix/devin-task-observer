@@ -9,12 +9,18 @@
 
 ```sh
 ./observerctl state --help
-./observerctl state --root /absolute/path/to/personal-observer-state list
+./observerctl state list
 ```
 
 `state` 다음의 `--root`가 **새 협조형 태스크 파일 저장소**를 선택한다. 기본 경로는
-`~/Library/Application Support/Devin Task Observer/state`다. 기존 서비스의 `--config`와
-SQLite `store`는 별개이며 자동으로 가져오지 않는다. 기존 DB 태스크 ID와 같은 문자열을
+`~/.devin-task-observer/state`다. 기본 설정은 `~/.devin-task-observer/config.json`,
+결정론적 관측 캐시는 `~/.devin-task-observer/observer.sqlite3`에 둔다. 명시적 `--root`,
+`--config`, `configure --store`는 기본값보다 우선한다. 일반 시작과 `configure`는 이전
+Application Support·실험실 경로를 자동으로 이관하지 않는다. 선택적 네이티브 Python은
+`~/Library/Application Support/Devin Task Observer/menu-runtime`에 그대로 둔다.
+
+기존 서비스의 `--config`와 SQLite `store`는 태스크 파일 저장소와 별개이며 태스크를
+자동으로 가져오지 않는다. 기존 DB 태스크 ID와 같은 문자열을
 새 태스크 ID로 쓰더라도 같은 태스크로 동기화하지 않는다. S01 자체는 이관하지 않는다. 현재 명시적 이관 명령은 [M3-S03](M3-S03.md)을 따른다.
 
 기존 `observerctl configure/run/status/autostart`는 기존 수집기·브라우저 런타임에 계속 적용된다.

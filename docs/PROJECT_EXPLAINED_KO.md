@@ -36,6 +36,10 @@
 
 ### 상태는 어디에 있는가
 
+기본 데이터 폴더는 `~/.devin-task-observer/`입니다. `config.json`은 개인 작업 공간·수집 설정, `state/`는 아래의 태스크 파일과 이력·세션 문맥·UI 확인 위치, `observer.sqlite3`는 결정론적 관측 캐시입니다. CLI·수집기·앱의 기본값은 `observer/paths.py`에서 공유합니다. `--config`, `--root`, `configure --store`로 다른 위치를 명시할 수 있습니다. 일반 실행과 `configure`는 예전 Application Support 또는 실험실 경로의 자료를 자동으로 옮기거나 병합하지 않습니다.
+
+선택적 네이티브 Python 런타임은 사용자 상태와 분리해 `~/Library/Application Support/Devin Task Observer/menu-runtime/`에 유지합니다. 기존 관리형 앱의 데이터 경로를 바꾸려면 `setup_menu.py --upgrade-app`에 새 `--config`·`--root`와 기존 경로인 `--previous-config`·`--previous-root`를 함께 지정합니다. 정확히 일치하는 관리형 실행기만 백업 후 바꾸며, 이 기능 자체가 데이터 파일을 이동하지는 않습니다.
+
 태스크 정의·보고·메모·View·등록 리소스·관리 설정은 `tasks/<task-id>/state.json`, 이력은 `history/`의 JSON입니다. report receipt와 작은 prepared journal이 중복 및 중단 복구를 담당합니다. 스키마는 저장소의 `schemas/cooperative-v1/`와 CLI `schema`로 확인할 수 있습니다. 새 필드는 선택적 확장이므로 기존 v1 파일을 조회만으로 다시 쓰지 않습니다. 훅은 `sessions/<hash>/context.json`과 `activity.json`에 식별·시각·이벤트만 저장하고 프롬프트·응답·압축 요약은 저장하지 않습니다.
 
 UI의 확인 위치는 `ui/read-cursors.json`에 자체 revision으로 저장합니다. [확인 위치 계약](UI_READ_CURSOR_CONTRACT.md)과 `schemas/ui-v2/read-cursors.schema.json`으로 검증하며, 기존 FileStore의 짧은 락·복구·원자적 쓰기를 사용합니다. 사용자가 실제 표시된 보고까지 확인했는지 검사하고, 동시에 새 보고가 들어오면 오래된 확인 요청을 거절합니다. 확인 파일 손상을 정상 상태로 조용히 덮어쓰지 않습니다.

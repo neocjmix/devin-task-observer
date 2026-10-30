@@ -8,8 +8,7 @@ import sys
 from .cooperative import CooperativeState
 from .file_store import StateError
 from .state_schema import MAX_BYTES, validate, published, task_management
-
-DEFAULT_ROOT = Path.home() / 'Library/Application Support/Devin Task Observer/state'
+from .paths import DEFAULT_ROOT
 
 
 def load_json(path):

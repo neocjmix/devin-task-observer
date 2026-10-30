@@ -10,9 +10,9 @@ import sys
 import tempfile
 from pathlib import Path
 from .reconciliation import validate_policy
+from .paths import DEFAULT_CONFIG, DEFAULT_ROOT, DEFAULT_STORE
 
 LABEL='ai.neocjmix.devin-task-observer'
-DEFAULT_CONFIG=Path.home()/'Library/Application Support/Devin Task Observer/config.json'
 
 
 def validate_config(value):
@@ -57,7 +57,6 @@ def launch_agent(config_path, mode='legacy-web', root=None):
     for name in ('service.log','service-error.log'):
         fd=os.open(logdir/name,os.O_WRONLY|os.O_CREAT,0o600);os.close(fd)
     if mode == 'menu':
-        from .state_cli import DEFAULT_ROOT
         python = menu_python()
         arguments = [python, '-m', 'observer.menu', '--config', str(config_path), '--root', str(root or DEFAULT_ROOT)]
     elif mode == 'collector':
@@ -148,7 +147,7 @@ def main(argv=None):
     configure=commands.add_parser('configure',help='개인 작업 공간 설정 저장')
     configure.add_argument('--workspace',type=Path,action='append',required=True)
     configure.add_argument('--source',type=Path,default=Path.home()/'.local/share/devin/cli/sessions.db')
-    configure.add_argument('--store',type=Path,default=Path.home()/'Library/Application Support/Devin Task Observer/observer.sqlite3')
+    configure.add_argument('--store',type=Path,default=DEFAULT_STORE)
     configure.add_argument('--port',type=int,default=8765)
     configure.add_argument('--git',type=Path,help='선택적 Git 실행 파일; 생략하면 PATH의 Git 사용')
     configure.add_argument('--semantic-adapter',choices=('off','codex_exec','devin_acp'),default='off')

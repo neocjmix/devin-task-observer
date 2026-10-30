@@ -15,7 +15,7 @@ import sys
 import uuid
 
 from .file_store import FileStore, StateError, _decode, _encode, _hash
-from .state_cli import DEFAULT_ROOT
+from .paths import DEFAULT_ROOT
 from .state_schema import validate
 
 REPOSITORY = Path(__file__).resolve().parents[1]

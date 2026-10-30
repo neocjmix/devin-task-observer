@@ -96,3 +96,17 @@ class UIActionTests(unittest.TestCase):
         self.assertTrue(response(self.root, archived)['ok'])
         self.assertTrue(self.core.read('task')['state']['resources'][0]['archived'])
         self.assertEqual(self.core.read('task')['state']['resources'][0]['external_status'], 'unknown')
+
+    def test_task_lifecycle_restores_previous_observation_and_keeps_notes(self):
+        self.core.note('task', 'Keep', 1)
+        off = self.request('observation', enabled=False, expected_revision=2)
+        self.assertTrue(response(self.root, off)['ok'])
+        done = dict(self.request('lifecycle', completed=True, expected_revision=3), request_id='done')
+        self.assertTrue(response(self.root, done)['ok'])
+        self.assertTrue(response(self.root, done)['result']['replayed'])
+        restored = dict(self.request('lifecycle', completed=False, expected_revision=4), request_id='restore')
+        self.assertTrue(response(self.root, restored)['ok'])
+        state = self.core.read('task')['state']
+        self.assertEqual(state['management']['lifecycle'], 'active')
+        self.assertFalse(state['management']['observation_enabled'])
+        self.assertEqual(state['notes'][0]['text'], 'Keep')

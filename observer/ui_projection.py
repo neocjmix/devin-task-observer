@@ -10,14 +10,14 @@ from copy import deepcopy
 import hashlib
 import json
 
-from .state_schema import validate
+from .state_schema import validate, task_management
 from .discovery import resource_key, scoped_resource
 
 
 # False means there is no live source contract yet, not an empty/zero value.
 CAPABILITIES = {
-    'task_lifecycle': False,
-    'task_observation_toggle': False,
+    'task_lifecycle': True,
+    'task_observation_toggle': True,
     'task_read_cursor': False,
     'typed_item_roles': True,
     'registered_resources': True,
@@ -91,6 +91,7 @@ def project(task_snapshots, *, observations=None, session_activity=None,
         if task_id in result['tasks']:
             raise ValueError('duplicate task snapshot: ' + task_id)
         state, origin, projection_errors = _display_state(row)
+        management = None if state is None else task_management(state)
         task = {
             'task_id': task_id, 'health': row['health'], 'errors': row.get('errors', []),
             'projection_errors': projection_errors, 'display_origin': origin,
@@ -99,6 +100,10 @@ def project(task_snapshots, *, observations=None, session_activity=None,
             'metadata': None if state is None else
                         {key: value for key, value in state.items() if key not in ('items', 'contributions')},
             'item_ids': [], 'session_ids': [], 'resource_candidate_ids': [],
+            'management': management,
+            'effective_observation_enabled': (None if management is None else
+                management['lifecycle'] == 'active' and management['observation_enabled']),
+            'plan_session_ids': [],
         }
         result['tasks'][task_id] = task
         result['items'][task_id] = {}
@@ -128,6 +133,10 @@ def project(task_snapshots, *, observations=None, session_activity=None,
         entry['observation'] = {key: value for key, value in record.items()
                                 if key not in ('resource_mentions', 'plan_snapshots')}
         entry['plan_snapshots'] = record.get('plan_snapshots', [])
+        if entry['plan_snapshots']:
+            for task_id in entry['task_ids']:
+                if result['tasks'][task_id]['effective_observation_enabled']:
+                    result['tasks'][task_id]['plan_session_ids'].append(session_id)
         for mention in record.get('resource_mentions', []):
             workspace = record['workspace']
             identity = resource_key(mention['kind'], mention['value'], workspace)
@@ -149,6 +158,10 @@ def project(task_snapshots, *, observations=None, session_activity=None,
                 entry['resource_candidate_ids'].append(candidate_id)
             for task_id in entry['task_ids']:
                 # This is discovery via a linked session, NOT a confirmed link.
+                # Pausing a task removes live automatic associations, but shared
+                # session observations and the many-to-many links remain intact.
+                if not result['tasks'][task_id]['effective_observation_enabled']:
+                    continue
                 if task_id not in candidate['related_task_ids']:
                     candidate['related_task_ids'].append(task_id)
                 ids = result['tasks'][task_id]['resource_candidate_ids']

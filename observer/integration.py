@@ -372,7 +372,7 @@ def hook(workspace, root, payload):
                 '. Read it with ' + shlex.join([manifest['python'], manifest['cli'], 'state', '--root', str(store.root), 'whoami', '--context', str(context_path)]) +
                 '. Use the observer-reporting skill (' + str(workspace / SKILL_DIRECTORY / 'SKILL.md') +
                 ') to start/stop reporting when requested, or to continue previously enabled reporting. '
-                'Read linked tasks and their reporting flags. While ON, report meaningful changes from your existing context as ordinary work proceeds. '
+                'Read linked tasks and their reporting flags. Report only when the task is active, its observation is enabled, and this session reporting flag is ON. Missing management means active with observation enabled. While ON, report meaningful changes from your existing context as ordinary work proceeds. '
                 'Do not invent session identity, query other work sessions, or block the original task for Observer errors.')
         return {'hookSpecificOutput': {'hookEventName': event, 'additionalContext': text}}
 

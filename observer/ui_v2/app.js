@@ -30,6 +30,13 @@
     const session = (projection.sessions || {})[actor.session_id];
     return (session && session.observation && session.observation.title) || actor.session_id || '세션';
   }
+  function management(task) {
+    return task.management || task.metadata?.management || {lifecycle: task.metadata ? 'active' : null, observation_enabled: Boolean(task.metadata), previous_observation_enabled: null};
+  }
+  function observing(task) {
+    const value = management(task);
+    return task.effective_observation_enabled ?? (value.lifecycle === 'active' && value.observation_enabled);
+  }
   function taskRows(projection) {
     return Object.values(projection.tasks || {}).map(task => {
       const items = (projection.items || {})[task.task_id] || {};
@@ -42,7 +49,7 @@
         summary: latest ? latest.title + ' · ' + valueText(latest.value) : task.display_origin === 'unavailable' ? '표시할 정상 기록 없음' : '아직 추적 항목이 없습니다.',
         source: latest ? actorName(latest.updated_by, projection) : null,
         updatedAt: latest ? latest.updated_at : null,
-        attention: attention.length > 0,
+        attention: attention.length > 0, lifecycle: management(task).lifecycle, observing: observing(task),
         origin: task.display_origin, error: task.health !== 'ok' || (task.projection_errors || []).length > 0,
         task};
     });
@@ -66,7 +73,7 @@
   }
   function filterRows(rows, query, filter) {
     const needle = query.trim().toLocaleLowerCase();
-    return rows.filter(row => (filter !== 'errors' || row.error) && (filter !== 'attention' || row.attention) && (!needle || (row.title + '\n' + row.summary).toLocaleLowerCase().includes(needle)))
+    return rows.filter(row => (filter === 'archive' ? row.lifecycle === 'completed' : row.lifecycle !== 'completed') && (filter !== 'errors' || row.error) && (filter !== 'attention' || row.attention) && (!needle || (row.title + '\n' + row.summary).toLocaleLowerCase().includes(needle)))
       .sort((a, b) => Number(Boolean(b.attention)) - Number(Boolean(a.attention)));
   }
   function roleGroups(projection, taskId) {
@@ -96,10 +103,10 @@
     for (const item of oldItems.values()) changes.push({title: item.title, field: '제거', before: item.value, after: null});
     const oldNotes = new Set((previous.notes || []).map(note => note.note_id));
     for (const note of current.notes || []) if (!oldNotes.has(note.note_id)) changes.push({title: '메모', field: '추가', before: null, after: note.text});
-    for (const field of ['title', 'view', 'contributions', 'resources']) if (JSON.stringify(previous[field]) !== JSON.stringify(current[field])) changes.push({title: '태스크', field, before: previous[field], after: current[field]});
+    for (const field of ['title', 'view', 'contributions', 'resources', 'management']) if (JSON.stringify(previous[field]) !== JSON.stringify(current[field])) changes.push({title: '태스크', field, before: previous[field], after: current[field]});
     return changes;
   }
-  const helpers = {milliseconds, time, valueText, actorName, taskRows, collectionHealth, filterRows, roleGroups, historyChanges, candidateDraft, RESOURCE_LABELS};
+  const helpers = {milliseconds, time, valueText, actorName, taskRows, collectionHealth, filterRows, roleGroups, historyChanges, candidateDraft, RESOURCE_LABELS, management, observing};
   if (typeof module !== 'undefined' && module.exports) module.exports = helpers;
   if (!root.document) return;
 
@@ -171,26 +178,32 @@
     if (!state.projection) return;
     const all = taskRows(state.projection);
     const rows = filterRows(all, state.query, state.filter);
-    text($('task-count'), all.length);
-    text($('error-count'), all.filter(row => row.error).length);
-    text($('attention-count'), all.filter(row => row.attention).length);
+    const lifecycle = state.projection.capabilities?.task_lifecycle;
+    text($('all-label'), lifecycle ? '활성' : '전체');
+    text($('task-count'), lifecycle ? all.filter(row => row.lifecycle === 'active').length : all.length);
+    text($('error-count'), all.filter(row => row.error && row.lifecycle !== 'completed').length);
+    text($('attention-count'), all.filter(row => row.attention && row.lifecycle !== 'completed').length);
+    text($('archive-count'), all.filter(row => row.lifecycle === 'completed').length);
+    $('filter-archive').hidden = !lifecycle;
     $('filter-attention').hidden = !state.projection.capabilities?.typed_item_roles;
     $('filter-all').setAttribute('aria-pressed', String(state.filter === 'all'));
     $('filter-errors').setAttribute('aria-pressed', String(state.filter === 'errors'));
     $('filter-attention').setAttribute('aria-pressed', String(state.filter === 'attention'));
+    $('filter-archive').setAttribute('aria-pressed', String(state.filter === 'archive'));
     const list = $('task-list');
     const existing = new Map(Array.from(list.children).map(card => [card.dataset.taskId, card]));
     rows.forEach((row, index) => {
       let card = existing.get(row.id);
       if (!card) {
         card = node('button', 'task-card'); card.type = 'button'; card.dataset.taskId = row.id;
-        const heading = node('div', 'task-heading'); heading.append(node('span', 'task-icon'), node('span', 'task-title'));
+        const heading = node('div', 'task-heading'); heading.append(node('span', 'task-icon'), node('span', 'task-title'), node('span', 'task-observation'));
         card.append(heading, node('p', 'task-summary'), node('div', 'task-source'), node('div', 'task-warning'));
         card.addEventListener('click', () => openTask(row.id));
       }
       text(card.querySelector('.task-icon'), row.error ? '!' : '◌');
       card.querySelector('.task-icon').setAttribute('aria-hidden', 'true');
       text(card.querySelector('.task-title'), row.title);
+      const pause = card.querySelector('.task-observation'); text(pause, '⏸'); pause.hidden = row.observing || row.lifecycle == null; pause.title = '태스크 자동 반영 꺼짐'; pause.setAttribute('aria-label', '태스크 자동 반영 꺼짐');
       text(card.querySelector('.task-summary'), row.summary);
       text(card.querySelector('.task-source'), row.source ? row.source + ' · ' + timeLabel(row.updatedAt) : '');
       const warning = row.origin === 'last_good' ? '마지막 정상 기록 · ' + timeLabel(row.task.displayed_updated_at) : row.origin === 'unavailable' ? '기록을 읽을 수 없습니다' : row.error ? '기록 확인 필요' : '';
@@ -387,6 +400,26 @@
     view.historyButton.addEventListener('click', () => loadHistory(false));
     view.historyRefresh.addEventListener('click', () => loadHistory(true));
     view.historySection.content.append(view.historyButton, view.historyRefresh, view.historyMessage);
+    view.managementSection = section(view.root, '태스크 관리');
+    view.managementStatus = node('p', 'muted'); view.managementSection.content.append(view.managementStatus);
+    view.managementButtons = node('div', 'button-row');
+    view.observationButton = node('button', 'action-button'); view.lifecycleButton = node('button', 'action-button');
+    view.managementButtons.append(view.observationButton, view.lifecycleButton); view.managementSection.content.append(view.managementButtons);
+    view.managementHelp = node('p', 'muted'); view.managementSection.content.append(view.managementHelp);
+    view.managementMessage = node('p', 'action-message'); view.managementMessage.setAttribute('role', 'status'); view.managementSection.content.append(view.managementMessage);
+    const changeManagement = action => {
+      const task = state.projection.tasks[taskId]; if (!canWrite(task) || view.managementPending) return;
+      const value = management(task); const args = {expected_revision: task.displayed_revision};
+      if (action === 'lifecycle') args.completed = value.lifecycle !== 'completed';
+      else { if (value.lifecycle !== 'active') return; args.enabled = !value.observation_enabled; }
+      view.managementPending = true; view.lifecycleButton.disabled = view.observationButton.disabled = true;
+      request(action, taskId, args, response => {
+        view.managementPending = false; actionMessage(view.managementMessage, response.ok ? '태스크 설정을 저장했습니다.' : failure(response), !response.ok);
+        view.lifecycleButton.disabled = view.observationButton.disabled = !canWrite(state.projection.tasks[taskId]);
+      });
+    };
+    view.observationButton.addEventListener('click', () => changeManagement('observation'));
+    view.lifecycleButton.addEventListener('click', () => changeManagement('lifecycle'));
     state.tasks.set(taskId, view); return view;
   }
   function historyGapCursor(entries) {
@@ -486,7 +519,7 @@
       if (!card) { card = node('button', 'panel session-button'); card.type = 'button'; card.append(node('strong'), node('div', 'muted'), node('div', 'muted')); card.addEventListener('click', () => openSession(id)); view.sessions.set(id, card); view.sessionSection.content.append(card); }
       const session = state.projection.sessions[id]; const edge = edges[id];
       text(card.children[0], session?.observation?.title || id);
-      text(card.children[1], '자동보고 ' + (edge?.reporting ? '켜짐' : '꺼짐') + ' · 최근 보고 ' + (edge?.last_report_at ? timeLabel(edge.last_report_at) : '없음'));
+      text(card.children[1], '자동보고 ' + (edge?.reporting ? '켜짐' : '꺼짐') + (edge?.reporting && !observing(task) ? ' · 태스크 반영 중지' : '') + ' · 최근 보고 ' + (edge?.last_report_at ? timeLabel(edge.last_report_at) : '없음'));
       const activity = session?.activity?.last_seen;
       text(card.children[2], '최근 활동 · ' + (activity ? timeLabel(activity) : '정보 없음'));
     }
@@ -498,11 +531,18 @@
     view.historyButton.disabled = view.historyPending || Boolean(state.projection.read_only);
     view.historyRefresh.disabled = view.historyPending || Boolean(state.projection.read_only);
     if (state.projection.read_only && !view.historyLoaded) actionMessage(view.historyMessage, '미리보기에서는 저장 이력을 불러오지 않습니다.');
+    const settings = management(task); const completed = settings.lifecycle === 'completed';
+    view.managementSection.heading.hidden = view.managementSection.content.hidden = !state.projection.capabilities?.task_lifecycle;
+    text(view.managementStatus, completed ? '완료 · 보관됨' : '활성 · 자동 반영 ' + (settings.observation_enabled ? '켜짐' : '꺼짐'));
+    text(view.lifecycleButton, completed ? '활성으로 복원' : '완료하고 보관');
+    text(view.observationButton, settings.observation_enabled ? '자동 반영 끄기' : '자동 반영 켜기'); view.observationButton.hidden = completed;
+    view.lifecycleButton.disabled = view.observationButton.disabled = view.managementPending || !canWrite(task);
+    text(view.managementHelp, completed ? '복원하면 자동 반영이 ' + (settings.previous_observation_enabled ? '켜집니다.' : '꺼진 상태로 돌아갑니다.') : '자동 반영을 꺼도 공유 세션 관측과 저장된 기록은 유지됩니다.');
   }
   function renderSession() {
     const session = state.projection.sessions[state.session];
     text($('detail-title'), session?.observation?.title || state.session);
-    const signature = JSON.stringify([state.selected, state.session, session, state.projection.contributions]);
+    const signature = JSON.stringify([state.selected, state.session, session, state.projection.contributions, session?.task_ids.map(id => [id, state.projection.tasks[id]?.metadata?.title, management(state.projection.tasks[id] || {})])]);
     if (state.sessionSignature === signature && $('detail-body').firstChild === state.sessionRoot) return;
     state.sessionSignature = signature; const body = node('div'); state.sessionRoot = body;
     if (!session) body.append(node('p', 'panel', '이 세션의 관측 정보가 없습니다.'));
@@ -513,7 +553,7 @@
       addFact('최근 활동', session.activity?.last_seen ? absoluteTime(session.activity.last_seen) : '정보 없음');
       addFact('작업 공간', session.observation?.workspace || session.activity?.workspace || '정보 없음');
       body.append(facts); const part = section(body, '연결 태스크 ' + session.task_ids.length + '개');
-      for (const taskId of session.task_ids) { const task = state.projection.tasks[taskId]; const edge = state.projection.contributions?.[taskId]?.[state.session]; const card = node('button', 'panel session-button'); card.append(node('strong', '', task?.metadata?.title || taskId), node('div', 'muted', '자동보고 ' + (edge?.reporting ? '켜짐' : '꺼짐')), node('div', 'muted', '최근 보고 · ' + (edge?.last_report_at ? absoluteTime(edge.last_report_at) : '없음'))); card.addEventListener('click', () => openTask(taskId)); part.content.append(card); }
+      for (const taskId of session.task_ids) { const task = state.projection.tasks[taskId]; const edge = state.projection.contributions?.[taskId]?.[state.session]; const card = node('button', 'panel session-button'); card.append(node('strong', '', task?.metadata?.title || taskId), node('div', 'muted', '자동보고 ' + (edge?.reporting ? '켜짐' : '꺼짐') + (edge?.reporting && task && !observing(task) ? ' · 태스크 반영 중지' : '')), node('div', 'muted', '최근 보고 · ' + (edge?.last_report_at ? absoluteTime(edge.last_report_at) : '없음'))); card.addEventListener('click', () => openTask(taskId)); part.content.append(card); }
     }
     $('detail-body').replaceChildren(body);
   }
@@ -549,7 +589,7 @@
   }
   function start() {
     $('search').addEventListener('input', event => { state.query = event.target.value; renderHome(); });
-    ['all', 'errors', 'attention'].forEach(filter => $('filter-' + filter).addEventListener('click', () => { state.filter = filter; renderHome(); }));
+    ['all', 'errors', 'attention', 'archive'].forEach(filter => $('filter-' + filter).addEventListener('click', () => { state.filter = filter; renderHome(); }));
     $('refresh').addEventListener('click', () => post('refresh'));
     $('back').addEventListener('click', back);
     document.addEventListener('keydown', event => {

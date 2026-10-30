@@ -35,6 +35,7 @@ input[type="search"] { width: 100%; border: 1px solid var(--line); border-radius
 .task-heading { display: flex; gap: 7px; align-items: baseline; }
 .task-icon { color: var(--muted); font-size: 12px; flex: 0 0 12px; }
 .task-title { font-size: 14px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.task-observation { margin-left: auto; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .task-summary { font-size: 13px; line-height: 1.5; margin: 5px 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .task-source { font-size: 11px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
 .task-warning { font-size: 11px; color: var(--warning); margin-top: 4px; }

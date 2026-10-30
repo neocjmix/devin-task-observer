@@ -61,7 +61,7 @@ assert.equal(ui.candidateDraft({...candidate, kind: 'worktree', value: '/synthet
 
 // Cross the actual Python schema/core/projection boundary, not a hand-shaped UI contract.
 const {execFileSync} = require('node:child_process');
-const actual = JSON.parse(execFileSync(process.env.PYTHON || 'python3', ['-c', `
+const coreBoundary = JSON.parse(execFileSync(process.env.PYTHON || 'python3', ['-c', `
 import json, tempfile, sys
 from observer.cooperative import CooperativeState
 from observer.ui_projection import project
@@ -79,13 +79,29 @@ with tempfile.TemporaryDirectory() as root:
          'status': 'completed', 'evidence': [], 'role': 'intervention', 'attention_required': False}
       ]}})
     core.resource_put('ui-test', json.load(sys.stdin), 3)
-    print(json.dumps(project(core.list())))
+    active = project(core.list())
+    core.observation('ui-test', False, 4)
+    off = project(core.list())
+    core.lifecycle('ui-test', True, 5)
+    completed = project(core.list())
+    core.lifecycle('ui-test', False, 6)
+    print(json.dumps({'active': active, 'off': off, 'completed': completed, 'restored': project(core.list())}))
 `], {cwd: path.join(__dirname, '..'), encoding: 'utf8', input: JSON.stringify(candidateResource)}));
+const actual = coreBoundary.active;
 assert.equal(ui.taskRows(actual)[0].attention, true);
 assert.equal(ui.filterRows(ui.taskRows(actual), '', 'attention').length, 1);
 assert.deepEqual(ui.roleGroups(actual, 'ui-test').map(group => [group.role, group.items.map(item => item.item_id)]), [['intervention', ['ask']]]);
 assert.deepEqual(actual.tasks['ui-test'].metadata.resources[0].evidence, candidateResource.evidence);
 assert.equal(actual.tasks['ui-test'].metadata.resources[0].external_status, 'unknown');
+assert.equal(ui.taskRows(actual)[0].lifecycle, 'active');
+assert.equal(ui.taskRows(actual)[0].observing, true);
+assert.equal(ui.taskRows(coreBoundary.off)[0].observing, false);
+assert.equal(ui.filterRows(ui.taskRows(coreBoundary.completed), '', 'all').length, 0);
+assert.equal(ui.filterRows(ui.taskRows(coreBoundary.completed), '', 'archive').length, 1);
+assert.equal(ui.taskRows(coreBoundary.restored)[0].lifecycle, 'active');
+assert.equal(ui.taskRows(coreBoundary.restored)[0].observing, false);
+assert.equal(coreBoundary.restored.contributions['ui-test']['session-a'].reporting, true);
+assert.deepEqual(coreBoundary.restored.items, actual.items);
 
 // A small DOM harness exercises refresh and asynchronous action ownership.
 const vm = require('node:vm');
@@ -114,7 +130,7 @@ const sent = [];
 const window = {document, webkit: {messageHandlers: {observer: {postMessage: message => { assert.equal(typeof message, 'string'); sent.push(JSON.parse(message)); }}}}};
 vm.runInNewContext(code, {window, Date, Map, Set, BigInt, JSON, Object, String, Boolean, Number, Array});
 const runtime = JSON.parse(JSON.stringify(projection));
-runtime.capabilities = {typed_item_roles: true}; runtime.contributions = {a: {s: {reporting: true, last_report_at: '2026-10-31T00:00:00Z'}}, b: {}}; runtime.resource_candidates = {};
+runtime.capabilities = {typed_item_roles: true, task_lifecycle: true}; runtime.contributions = {a: {s: {reporting: true, last_report_at: '2026-10-31T00:00:00Z'}}, b: {}}; runtime.resource_candidates = {};
 runtime.sessions.s.session_id = 's'; runtime.sessions.s.task_ids = ['a']; runtime.sessions.s.activity = {last_seen: '2026-10-31T01:00:00Z'};
 for (const task of Object.values(runtime.tasks)) { task.session_ids = task.task_id === 'a' ? ['s'] : []; task.displayed_revision = 2; task.resource_candidate_ids = []; task.metadata.notes = []; task.metadata.view = {markdown: ''}; }
 assert.equal(window.Observer.receive(runtime), true);
@@ -236,6 +252,39 @@ runtime.tasks.a.metadata.resources[0].archived = true; window.Observer.receive(r
 assert.equal(archiveResource.textContent, '복원');
 archiveResource.fire('click');
 assert.equal(sent.at(-1).archived, false);
+const observationButton = walk(detail).find(element => element.tagName === 'BUTTON' && element.textContent === '자동 반영 끄기');
+observationButton.fire('click');
+assert.equal(sent.at(-1).action, 'observation');
+assert.equal(sent.at(-1).enabled, false);
+assert.equal(sent.at(-1).expected_revision, 4);
+window.Observer.actionResult({request_id: sent.at(-1).request_id, ok: true, result: {}});
+runtime.tasks.a.management = coreBoundary.off.tasks['ui-test'].management; runtime.tasks.a.effective_observation_enabled = false; runtime.tasks.a.displayed_revision = 5;
+window.Observer.receive(runtime);
+assert.equal(observationButton.textContent, '자동 반영 켜기');
+assert.ok(detail.textContent.includes('태스크 반영 중지'));
+const lifecycleButton = walk(detail).find(element => element.tagName === 'BUTTON' && element.textContent === '완료하고 보관');
+lifecycleButton.fire('click');
+assert.equal(sent.at(-1).action, 'lifecycle');
+assert.equal(sent.at(-1).completed, true);
+assert.equal(sent.at(-1).expected_revision, 5);
+window.Observer.actionResult({request_id: sent.at(-1).request_id, ok: true, result: {}});
+runtime.tasks.a.management = coreBoundary.completed.tasks['ui-test'].management; runtime.tasks.a.displayed_revision = 6;
+window.Observer.receive(runtime);
+assert.equal(observationButton.hidden, true);
+assert.equal(lifecycleButton.textContent, '활성으로 복원');
+ids.get('back').fire('click');
+assert.equal(ids.get('task-list').children.some(card => card.dataset.taskId === 'a'), false);
+ids.get('filter-archive').fire('click');
+assert.equal(ids.get('task-list').children.length, 1);
+ids.get('task-list').children[0].fire('click');
+lifecycleButton.fire('click');
+assert.equal(sent.at(-1).completed, false);
+window.Observer.actionResult({request_id: sent.at(-1).request_id, ok: true, result: {}});
+runtime.tasks.a.management = coreBoundary.restored.tasks['ui-test'].management; runtime.tasks.a.displayed_revision = 7;
+window.Observer.receive(runtime);
+assert.equal(observationButton.textContent, '자동 반영 켜기');
+assert.equal(observationButton.hidden, false);
+assert.equal(draft.value, 'edited after request');
 runtime.read_only = true; window.Observer.receive(runtime);
 assert.equal(draft.disabled, true);
 assert.equal(window.Observer.receive({projection_version: 99}), false);

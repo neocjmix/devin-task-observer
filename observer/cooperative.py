@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 from .file_store import FileStore, StateError
-from .state_schema import validate, ID, SID, _validate
+from .state_schema import validate, ID, SID, _validate, task_management
 
 HUMAN = {'kind': 'human', 'session_id': None}
 ITEM_EDIT_FIELDS = ('item_id', 'title', 'value', 'status', 'evidence', 'pinned',
@@ -84,6 +84,40 @@ class CooperativeState:
             self._contribution(value, session_id)['reporting'] = enabled
         return self._control(task_id, expected_revision, 'reporting', {'session_id': session_id, 'enabled': enabled}, change, request_id)
 
+    def lifecycle(self, task_id, completed, expected_revision, request_id=None):
+        """Human completion never follows an agent's free-form item status."""
+        if type(completed) is not bool:
+            raise StateError('validation_error', 'completed must be boolean')
+        def change(value):
+            management = task_management(value)
+            if completed:
+                if management['lifecycle'] == 'completed':
+                    raise StateError('already_completed', 'task is already completed')
+                management.update(lifecycle='completed',
+                                  previous_observation_enabled=management['observation_enabled'],
+                                  observation_enabled=False)
+            else:
+                if management['lifecycle'] == 'active':
+                    raise StateError('already_active', 'task is already active')
+                management.update(lifecycle='active',
+                                  observation_enabled=management['previous_observation_enabled'])
+            value['management'] = management
+        return self._control(task_id, expected_revision, 'lifecycle',
+                             {'completed': completed}, change, request_id)
+
+    def observation(self, task_id, enabled, expected_revision, request_id=None):
+        """Pause this task's automatic updates, not shared-session collection."""
+        if type(enabled) is not bool:
+            raise StateError('validation_error', 'enabled must be boolean')
+        def change(value):
+            management = task_management(value)
+            if management['lifecycle'] == 'completed' and enabled:
+                raise StateError('task_completed', 'restore task before enabling observation')
+            management['observation_enabled'] = enabled
+            value['management'] = management
+        return self._control(task_id, expected_revision, 'observation',
+                             {'enabled': enabled}, change, request_id)
+
     @staticmethod
     def _contribution(value, session_id):
         for contribution in value['contributions']:
@@ -115,6 +149,11 @@ class CooperativeState:
             for task_id, changes in request['changes'].items():
                 value = copy.deepcopy(states[task_id])
                 contribution = self._contribution(value, request['session_id'])
+                management = task_management(value)
+                if management['lifecycle'] == 'completed':
+                    raise StateError('task_completed', 'completed task does not accept new reports')
+                if not management['observation_enabled']:
+                    raise StateError('observation_disabled', 'automatic updates are paused for this task')
                 if not contribution['reporting']:
                     raise StateError('reporting_disabled', 'enable reporting for this task/session before reporting')
                 if not changes:

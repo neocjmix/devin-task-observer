@@ -13,7 +13,8 @@ def dispatch(root, body):
     allowed = {'note': {'text'}, 'pin': {'item_id', 'pinned'},
                'history': {'limit', 'before_revision'},
                'resource_put': {'resource'}, 'resource_archive': {'resource_id', 'archived'},
-               'resource_open': {'resource_id'}, 'resource_copy': {'resource_id'}}
+               'resource_open': {'resource_id'}, 'resource_copy': {'resource_id'},
+               'lifecycle': {'completed'}, 'observation': {'enabled'}}
     if action not in allowed:
         raise ValueError('unsupported UI action')
     keys = {'action', 'task_id', 'request_id'} | allowed[action]
@@ -53,6 +54,10 @@ def dispatch(root, body):
         return core.resource_put(task_id, body.get('resource'), revision, rid)
     if action == 'resource_archive':
         return core.resource_archive(task_id, body.get('resource_id'), body.get('archived'), revision, rid)
+    if action == 'lifecycle':
+        return core.lifecycle(task_id, body.get('completed'), revision, rid)
+    if action == 'observation':
+        return core.observation(task_id, body.get('enabled'), revision, rid)
     _validate(body.get('item_id'), ID)
     return core.pin(task_id, body['item_id'], body.get('pinned'), revision, rid)
 

@@ -33,6 +33,14 @@ The hook already creates its context; do not run registration over it. Only when
 
 Read the task title, contributions, current items, `updated_by`, revisions and reporting flag. Read existing items before defining another one. Reuse a matching stable `item_id`; a title match alone is not proof that two items mean the same thing. Explicitly link a relevant task when needed; do not report to every task sharing this session.
 
+Also read `state.management` when present. Missing management means active with
+observation enabled. An effective reporting contribution requires all three:
+task lifecycle `active`, `observation_enabled: true`, and contribution reporting
+ON. Completion or task observation OFF pauses new reports without removing the
+per-session reporting preference. Do not restore, reactivate or enable observation
+to bypass that pause. These are human controls, separate from item `status` and
+item archive. Shared sessions may still report to other eligible tasks.
+
 Reporting is enabled separately for each task/session contribution:
 
 ```sh
@@ -108,3 +116,10 @@ PR is open/merged or that a URL/file is accessible. Legacy resource snapshots
 remain under `legacy.resources` and are not automatically promoted.
 
 On disabled reporting, missing identity, validation failure, file damage, lock timeout or repeated conflicts, keep the unsubmitted intent locally when useful and surface the failure briefly. Do not mark it as committed, silently repair raw state, busy-loop, or block the original Devin task. Ordinary collection remains independent. Resume reporting after the relevant condition is resolved and current state has been reread.
+
+On `task_completed` or `observation_disabled`, stop reporting to that task while
+continuing the user's original work. A newly submitted report is rejected, not
+saved as hidden post-completion history. An exact retry of an already committed
+report can return its original receipt after completion; it does not reactivate
+the task. Recheck all target tasks before preparing a multi-task report, since one
+ineligible task causes the whole atomic request to fail.

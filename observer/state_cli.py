@@ -7,7 +7,7 @@ import sys
 
 from .cooperative import CooperativeState
 from .file_store import StateError
-from .state_schema import MAX_BYTES, validate, published
+from .state_schema import MAX_BYTES, validate, published, task_management
 
 DEFAULT_ROOT = Path.home() / 'Library/Application Support/Devin Task Observer/state'
 
@@ -56,15 +56,17 @@ def parser():
     for name in ('read', 'history'):
         sub = commands.add_parser(name)
         sub.add_argument('--task', required=True)
-    for name in ('link', 'reporting', 'pin', 'note'):
+    for name in ('link', 'reporting', 'pin', 'note', 'lifecycle', 'observation'):
         sub = commands.add_parser(name)
         sub.add_argument('--task', required=True)
         sub.add_argument('--expected-revision', type=int, required=True)
         sub.add_argument('--request-id')
         if name in ('link', 'reporting'):
             sub.add_argument('--session', required=True)
-        if name == 'reporting':
+        if name in ('reporting', 'observation'):
             sub.add_argument('--enabled', choices=('on', 'off'), required=True)
+        if name == 'lifecycle':
+            sub.add_argument('--completed', choices=('on', 'off'), required=True)
         if name == 'pin':
             sub.add_argument('--item', required=True)
             sub.add_argument('--pinned', choices=('on', 'off'), required=True)
@@ -142,6 +144,10 @@ def execute(args):
         return core.link(args.task, args.session, args.expected_revision, args.request_id)
     if command == 'reporting':
         return core.reporting(args.task, args.session, args.enabled == 'on', args.expected_revision, args.request_id)
+    if command == 'lifecycle':
+        return core.lifecycle(args.task, args.completed == 'on', args.expected_revision, args.request_id)
+    if command == 'observation':
+        return core.observation(args.task, args.enabled == 'on', args.expected_revision, args.request_id)
     if command == 'pin':
         return core.pin(args.task, args.item, args.pinned == 'on', args.expected_revision, args.request_id)
     if command == 'note':
@@ -198,6 +204,7 @@ def main(argv=None):
                 compact.append({'task_id': row['task_id'], 'health': row['health'], 'errors': row['errors'],
                                 'title': value['title'] if value else None, 'revision': value['revision'] if value else None,
                                 'item_count': len(value['items']) if value else None,
+                                'management': task_management(value) if value else None,
                                 'contributions': value['contributions'] if value else [],
                                 'snapshot': 'current' if row['health'] == 'ok' else 'last_good'})
             result['tasks'] = compact

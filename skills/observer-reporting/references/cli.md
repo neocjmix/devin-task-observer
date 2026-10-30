@@ -96,6 +96,11 @@ errors, briefly surface the uncommitted report and continue the original work.
 Human editing (`pin`, `note`, `edit-apply`, `recover`) needs an actual user request;
 it is not an automatic reporting workaround.
 
+`task_completed` and `observation_disabled` also stop new reporting to that task.
+Do not force another revision or silently enable observation. Existing reporting
+preferences are retained; only active/observation-ON tasks accept new reports.
+Already committed identical request IDs replay their old receipt without revival.
+
 Ordinary Devin tool permissions still apply. This skill grants no auto-approved
 shell access. If the host requests permission for a command, follow its normal
 permission flow; do not bypass it with another tool or edit raw state.
@@ -126,3 +131,24 @@ archive/restore retains the registration and prior history. External status stay
 automatically: preserve the chosen source node ID/hash and session reference when
 the user explicitly registers it. Inspect `schema --kind resource` or validate the
 input with `validate --kind resource --file ...` before submitting.
+
+## User-managed task lifecycle and observation
+
+Only on an explicit user request, read the current revision and use:
+
+```sh
+./observerctl state --root "$observer_root" observation --task "$task_id" --enabled off --expected-revision "$revision" --request-id "$request_id"
+./observerctl state --root "$observer_root" lifecycle --task "$task_id" --completed on --expected-revision "$revision" --request-id "$request_id"
+```
+
+`--completed off` restores a task and the observation preference it had immediately
+before completion. An active task may pause/resume observation with `--enabled
+off/on`. A completed task cannot enable observation without restoration. These
+controls preserve notes, pins, resources, history and per-session reporting
+preferences; an agent's `completed` item status never completes the task.
+
+Observation OFF means no new cooperative report updates or live candidate/plan
+associations for this task. The workspace collector still observes sessions for
+other tasks, and session-wide data remains separately available. No frozen copy
+of automatic candidates is created. Global observation activity must not be read
+as a new report for the paused task. Ordinary collection never calls a model.

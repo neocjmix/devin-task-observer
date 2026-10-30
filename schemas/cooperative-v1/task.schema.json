@@ -528,6 +528,29 @@
         "additionalProperties": false
       },
       "maxItems": 1000
+    },
+    "management": {
+      "type": "object",
+      "properties": {
+        "lifecycle": {
+          "enum": [
+            "active",
+            "completed"
+          ]
+        },
+        "observation_enabled": {
+          "type": "boolean"
+        },
+        "previous_observation_enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "lifecycle",
+        "observation_enabled",
+        "previous_observation_enabled"
+      ],
+      "additionalProperties": false
     }
   },
   "required": [

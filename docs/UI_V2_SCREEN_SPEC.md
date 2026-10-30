@@ -1,5 +1,5 @@
 # Observer UI v2 — screen and interaction specification
-Companion to [roadmap](UI_V2_ROADMAP.md). Design target is NSPopover, not implemented. All names/numbers below are synthetic fixtures. No browser/Electron requirement; Python/PyObjC native views or NSPopover+WKWebView after spike. Current NSMenu remains supported.
+Companion to [roadmap](UI_V2_ROADMAP.md). As of 2026-10-31, S0–S8 implement a Python/PyObjC NSPopover with local HTML/JS in WKWebView. NSMenu remains an explicit fallback. Names/numbers below are illustrative synthetic fixtures. The specification is not evidence for untested platform capabilities; see [S8 acceptance](slices/UI-V2-S8.md).
 
 ## Global contract
 - Status bar: neutral icon normally, attention only for real collector/data failure. Click opens popover; no model calls.
@@ -11,8 +11,8 @@ Companion to [roadmap](UI_V2_ROADMAP.md). Design target is NSPopover, not implem
 ## Screen H: task home
 Vertical stack, 12pt padding:
 1. Header.
-2. Three compact summary cells: “활성 태스크 5”, “개입 필요 1”, “새 보고 3”. Counts derive from real data; if no read cursor, do not fake “새 보고”.
-3. Segmented filter: “활성 | 개입 필요 | 새 보고 | 보관”.
+2. Compact counted filters: 활성, 확인 필요, 내가 할 일, 새 보고, 보관. Counts derive from stored state; unknown report/read positions remain unknown. Missing initial cursor means unread only when a valid report revision exists.
+3. Search and filters share the same task list; 확인 필요 means data integrity issues, 내가 할 일 means explicit intervention.
 4. Scrollable task list sorted explicit intervention first, then new report, then other tasks. No unsupported AI-generated urgency ranking.
 5. Footer “마지막 성공 수집 · HH:mm” and settings/diagnostic entry.
 
@@ -43,7 +43,7 @@ Tokens collapsible: total input, new input, cached input, output, measurement ti
 
 ## Lifecycle state machine
 Three distinct concepts: reported work progress (agent's free status), user-managed task lifecycle (active/completed-archived), and per-task observation setting (on/off).
-Allowed: active/on, active/off, completed/off. Completed/on disallowed. On complete store previous observation preference; on restore recover it. A task's observation-off must not stop shared-session collection needed by another task. Data/history remain available while archived. Post-completion agent reports may be retained as history without auto-reactivation; exact transaction semantics must be defined/tested before implementation.
+Allowed: active/on, active/off, completed/off. Completed/on disallowed. On complete store previous observation preference; on restore recover it. A task's observation-off must not stop shared-session collection needed by another task. Data/history remain available while archived. New reports while completed or observation-off are rejected inside the transaction without consuming their report ID; a retry of an already accepted receipt remains idempotent. Restore does not fabricate reports or reactivate another task.
 Do not conflate item.archived with task completion. No deletion on archive.
 
 ## Errors and integrity
@@ -61,10 +61,12 @@ System collection failure: header alert, last successful collection time, retry/
 9. Session locator stale/unsupported: no automatic resume, ID copy works.
 10. Duplicate task/item titles, long Korean/English values, empty states, inaccessible URL, dark mode, keyboard focus.
 
-## Implementation reality
-Current code: observer/menu.py NSMenu; observer/state_schema.py v1 (no task lifecycle/read cursor/resource collection/session locator/token metrics). docs/M3_PROGRESS.md and docs/slices/M3-S04.md document tested scope. UI design is NOT a claim that these new features exist. Never use synthetic “M3 합성 파서” strings as fixed product copy. Use [roadmap](UI_V2_ROADMAP.md) S0–S8 one per Codex run and report exact test evidence.
+## Implemented scope and remaining boundaries
 
-2026-10-31: [S0](slices/UI-V2-S0.md) adds `observer/ui_projection.py` and synthetic inputs in
-`tests/fixtures/ui_v2/`. This is a pure data projection, not a rendered UI. Unsupported screen fields
-are capability-gated; fixtures do not invent live lifecycle, unread, typed intervention, token or locator data.
-Existing NSMenu and persisted v1 schemas remain unchanged.
+- `observer.desktop` is the native entry, `observer.popover` the host, `observer/ui_v2/` the local frontend. No HTTP server, browser window, Electron, network content or model call is needed.
+- Pure projections preserve current vs last-good state, item source/time/evidence, pins, notes, candidates and all task–session edges. UI writes use the existing optimistic transactions and validate the displayed revision.
+- Optional v1 fields add item role/intervention, resources, task lifecycle/observation and report revision. `ui/read-cursors.json` has a separate validated contract and does not modify task revision. Old binaries cannot validate records populated with these new optional fields; do not silently roll back the reader.
+- Session metrics read the verified local SQLite v17 format. Input totals include cache input once. These are retained-message metrics, potentially including inherited fork history; not billing or lifetime totals, and never apportioned to linked tasks.
+- Exact owning session tab activation is unsupported. The UI copies the linked session ID or activates one already-running Devin app. No session URL, load, resume, ACP or prompt is issued.
+- Keyboard, AX labels, light/dark, live refresh, conflicts, errors and restart were checked on the actual native host with synthetic data. VoiceOver speech and 5–10 simultaneous live Devin agent executions were not tested. Eight synthetic source sessions and a separate read-only check of four real personal synthetic Devin sessions are distinct evidence.
+- Detailed per-slice results: [roadmap](UI_V2_ROADMAP.md), [S8 acceptance](slices/UI-V2-S8.md). Earlier S0 claims describe that historical baseline, not current capability.

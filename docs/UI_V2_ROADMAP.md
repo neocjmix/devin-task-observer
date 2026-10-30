@@ -4,9 +4,9 @@ Goal: resume 5+ asynchronous Devin tasks without opening every session. Best eff
 
 The user authorized S1–S8 in one autonomous execution on 2026-10-31. Implement and validate in dependency order, with a commit per slice.
 
-2026-10-31 status: **S0–S7 implemented and tested**. See [S0](slices/UI-V2-S0.md) and [S1](slices/UI-V2-S1.md), [S2](slices/UI-V2-S2.md), [S3](slices/UI-V2-S3.md), [S4](slices/UI-V2-S4.md), [S5](slices/UI-V2-S5.md), [S6](slices/UI-V2-S6.md), [S7](slices/UI-V2-S7.md).
-S8 acceptance remains in progress. The optional popover uses local HTML/JS with Python; the existing NSMenu remains available.
-Unsupported source contracts remain explicitly gated until their implementation slice.
+2026-10-31 status: **S0–S8 implemented**, with actual macOS acceptance and explicit platform limits. See [S0](slices/UI-V2-S0.md), [S1](slices/UI-V2-S1.md), [S2](slices/UI-V2-S2.md), [S3](slices/UI-V2-S3.md), [S4](slices/UI-V2-S4.md), [S5](slices/UI-V2-S5.md), [S6](slices/UI-V2-S6.md), [S7](slices/UI-V2-S7.md), [S8](slices/UI-V2-S8.md).
+The default local app uses a Python-hosted NSPopover and local HTML/JS; NSMenu remains an explicit fallback. Final regression: 395 Python passed, 2 opt-in model tests skipped; JS regression passed.
+Exact session tab activation is unsupported and uses the S6 safe fallback. S8 tested eight synthetic source sessions plus read-only compatibility with four real personal synthetic Devin sessions, not eight simultaneous live agents. VoiceOver speech and long-running login/logout remain unverified.
 
 S0: Read-only normalized projections and synthetic fixtures. Preserve item-level actor/time, many-to-many task-session mapping, last_good and errors. No storage migration.
 

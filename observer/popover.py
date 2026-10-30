@@ -157,18 +157,21 @@ class ProjectionController:
             self._thread.join(timeout=4)
 
 
-def run_native(controller, *, show=False, probe=None):
+def run_native(controller, *, show=False, probe=None, appearance='system'):
     """Local-only WKWebView in an NSPopover, never a browser window."""
     import objc
     from AppKit import (NSApplication, NSApplicationActivationPolicyAccessory, NSStatusBar,
                         NSVariableStatusItemLength, NSImage, NSViewController, NSPopover,
                         NSPopoverBehaviorTransient, NSMakeRect, NSMakeSize, NSMinYEdge, NSView,
-                        NSTextField, NSScrollView, NSStackView)
+                        NSTextField, NSScrollView, NSStackView, NSAppearance,
+                        NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSEvent, NSApplicationDefined)
     from Foundation import NSObject, NSTimer, NSURL
     from WebKit import WKWebView, WKWebViewConfiguration, WKWebsiteDataStore
 
     app = NSApplication.sharedApplication()
     app.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+    if appearance != 'system':
+        app.setAppearance_(NSAppearance.appearanceNamed_(NSAppearanceNameDarkAqua if appearance == 'dark' else NSAppearanceNameAqua))
     stopped = threading.Event()
     asset_url = NSURL.fileURLWithPath_(str(ASSETS / 'index.html'))
     # Use WebKit's NSObject selector metadata for navigation. Explicit formal
@@ -230,6 +233,11 @@ def run_native(controller, *, show=False, probe=None):
                 if controller.runtime:
                     controller.runtime.stop()
                 app.stop_(None)
+                # stop_ only ends run() after the next event; a hidden status-bar
+                # app may otherwise remain alive indefinitely with no input.
+                wake = NSEvent.otherEventWithType_location_modifierFlags_timestamp_windowNumber_context_subtype_data1_data2_(
+                    NSApplicationDefined, (0, 0), 0, 0, 0, None, 0, 0, 0)
+                app.postEvent_atStart_(wake, True)
                 return
             if self.pending_show:
                 self.pending_show = False
@@ -237,6 +245,7 @@ def run_native(controller, *, show=False, probe=None):
             value = controller.latest()
             if not self.ready or value is None:
                 return
+            value['appearance'] = appearance
             for result in controller.results():
                 result = finish(result)
                 self.web.evaluateJavaScript_completionHandler_('window.Observer.actionResult(' + json.dumps(wire_value(result), ensure_ascii=True) + ')', None)
@@ -318,6 +327,7 @@ def main(argv=None):
     parser.add_argument('--show', action='store_true', help='open the popover at launch')
     parser.add_argument('--probe', type=Path, help='write optional local native feasibility evidence')
     parser.add_argument('--snapshot', action='store_true', help='project data without the native UI')
+    parser.add_argument('--appearance', choices=('system', 'light', 'dark'), default='system', help='this app only; does not change macOS appearance')
     args = parser.parse_args(argv)
     try:
         if args.fixture:
@@ -332,7 +342,7 @@ def main(argv=None):
         if args.snapshot:
             print(json.dumps(wire_value(controller.collect()), ensure_ascii=False))
             return 0
-        return run_native(controller, show=args.show, probe=args.probe)
+        return run_native(controller, show=args.show, probe=args.probe, appearance=args.appearance)
     except (ValueError, OSError, StateError, ImportError) as error:
         print('Observer 안내: ' + str(error))
         return 2

@@ -101,6 +101,16 @@
     return [['input_total', '입력 합계'], ['input_new', '새 입력'], ['input_cached', '캐시 입력 · 입력 합계에 포함'], ['output', '출력']]
       .map(([key, label]) => ({key, label, value: usage?.status === 'available' && Number.isSafeInteger(usage[key]) && usage[key] >= 0 ? usage[key] : null}));
   }
+  function readDescription(task, health) {
+    const status = task.read_state?.status || 'unknown';
+    if (status === 'unavailable') {
+      if (health?.read_cursor_error) return '확인 위치를 읽지 못했습니다. 진단을 확인하세요.';
+      if (task.display_origin === 'last_good') return '마지막 정상 기록을 표시하고 있어 새 보고의 확인 상태를 판단할 수 없습니다.';
+      if (task.display_origin === 'unavailable') return '태스크 기록을 읽을 수 없어 보고의 확인 상태를 판단할 수 없습니다.';
+      return '현재 보고의 확인 상태를 판단할 수 없습니다.';
+    }
+    return ({unread: '새 보고가 있습니다.', read: '현재 보고를 확인했습니다.', unknown: '아직 보고의 확인 위치를 알 수 없습니다.'})[status] || '확인 위치 정보 없음';
+  }
   function historyChanges(current, previous) {
     if (!previous || current.revision !== previous.revision + 1) return null;
     const changes = [];
@@ -119,7 +129,7 @@
     for (const field of ['title', 'view', 'contributions', 'resources', 'management']) if (JSON.stringify(previous[field]) !== JSON.stringify(current[field])) changes.push({title: '태스크', field, before: previous[field], after: current[field]});
     return changes;
   }
-  const helpers = {milliseconds, time, valueText, actorName, taskRows, collectionHealth, filterRows, roleGroups, historyChanges, candidateDraft, RESOURCE_LABELS, management, observing, sessionActivity, usageRows};
+  const helpers = {milliseconds, time, valueText, actorName, taskRows, collectionHealth, filterRows, roleGroups, historyChanges, candidateDraft, RESOURCE_LABELS, management, observing, sessionActivity, usageRows, readDescription};
   if (typeof module !== 'undefined' && module.exports) module.exports = helpers;
   if (!root.document) return;
 
@@ -531,7 +541,7 @@
     text(view.report, reports.length ? '최근 보고 · ' + timeLabel(reports[0]) : '아직 보고된 내용이 없습니다.');
     const read = task.read_state || {status: 'unknown', last_report_revision: null};
     view.readPanel.hidden = !state.projection.capabilities?.task_read_cursor;
-    text(view.readStatus, ({unread: '새 보고가 있습니다.', read: '현재 보고를 확인했습니다.', unknown: '아직 보고의 확인 위치를 알 수 없습니다.', unavailable: '확인 위치를 읽지 못했습니다. 진단을 확인하세요.'})[read.status] || '확인 위치 정보 없음');
+    text(view.readStatus, readDescription(task, state.projection.health));
     view.markRead.disabled = view.readPending || !canWrite(task) || ['read', 'unavailable'].includes(read.status) || !Number.isSafeInteger(read.last_report_revision) || read.last_report_revision < 1;
     const groups = roleGroups(state.projection, taskId);
     const roleSignature = JSON.stringify(groups);
@@ -672,8 +682,10 @@
   function render() {
     const health = collectionHealth(state.projection);
     text($('health'), health.label); $('health').classList.toggle('warning', health.warning);
-    $('diagnostics').hidden = !health.diagnostics.length;
-    text($('diagnostic-text'), health.diagnostics.join('\n\n'));
+    $('diagnostics').hidden = !health.diagnostics.length && !$('diagnostics').open;
+    text($('diagnostic-summary'), health.diagnostics.length ? '진단 보기' : '관측 정보');
+    text($('diagnostic-text'), health.diagnostics.length ? health.diagnostics.join('\n\n') : '현재 보고된 관측 오류가 없습니다.\n태스크 ' + Object.keys(state.projection.tasks).length + '개 · 연결·관측 세션 ' + Object.keys(state.projection.sessions || {}).length + '개\n마지막 성공 수집 · ' + (health.lastSuccess ? absoluteTime(health.lastSuccess) : '기록 없음'));
+    $('show-diagnostics').setAttribute('aria-expanded', String(Boolean($('diagnostics').open)));
     text($('last-success'), '마지막 성공 수집 · ' + (health.lastSuccess ? timeLabel(health.lastSuccess) : '기록 없음'));
     const lastTime = time(health.lastSuccess);
     $('last-success').title = typeof lastTime === 'string' ? '' : lastTime.absolute;
@@ -684,6 +696,8 @@
       text($('message'), '새 관측 정보를 표시할 수 없습니다. 마지막 표시 내용을 유지합니다.'); $('message').hidden = false;
       return false;
     }
+    const appearance = ['light', 'dark', 'system'].includes(projection.appearance) ? projection.appearance : 'system';
+    if (document.documentElement && document.documentElement.dataset.appearance !== appearance) document.documentElement.dataset.appearance = appearance;
     state.projection = projection;
     $('message').hidden = true;
     render(); return true;
@@ -692,6 +706,9 @@
     $('search').addEventListener('input', event => { state.query = event.target.value; renderHome(); });
     ['all', 'errors', 'attention', 'new', 'archive'].forEach(filter => $('filter-' + filter).addEventListener('click', () => { state.filter = filter; renderHome(); }));
     $('refresh').addEventListener('click', () => post('refresh'));
+    $('show-diagnostics').addEventListener('click', () => { $('diagnostics').open = !$('diagnostics').open; if (state.projection) render(); else { $('diagnostics').hidden = !$('diagnostics').open; text($('diagnostic-text'), '아직 관측 정보를 받지 못했습니다.'); $('show-diagnostics').setAttribute('aria-expanded', String($('diagnostics').open)); } });
+    $('diagnostics').addEventListener('toggle', () => { $('show-diagnostics').setAttribute('aria-expanded', String(Boolean($('diagnostics').open))); if (state.projection && !collectionHealth(state.projection).diagnostics.length) $('diagnostics').hidden = !$('diagnostics').open; });
+    $('quit').addEventListener('click', () => post('quit'));
     $('back').addEventListener('click', back);
     document.addEventListener('keydown', event => {
       if (event.key === 'Escape') { event.preventDefault(); if (state.selected) back(); else post('close'); }

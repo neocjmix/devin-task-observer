@@ -46,6 +46,15 @@ UI V2 로드맵의 별도 S0~S8에는 `UI-V2-S0`~`UI-V2-S8` ID를 사용한다.
 | [M3-S04](slices/M3-S04.md) | 메뉴 깊이 축소·제품 문구·작은 그래픽 요소 | UI 구현·관련 테스트 통과; 실제 메뉴 검증 결과는 슬라이스 기록 참조 |
 | [UI-V2-S0](slices/UI-V2-S0.md) | 읽기 전용 데이터 투영·합성 fixture·현재 화면 요구와의 차이 | S0 19개 통과; 전체 292개 실행·290 통과·실제 모델 2 skip. S0 당시 S1 이후 UI 미구현 |
 
+| [UI-V2-S1](slices/UI-V2-S1.md) | Python + WKWebView 팝오버·홈·검색·건강 상태 | 관련 Python 40 통과, JS 18 assertions, 실제 Mac 표시·검색·복귀 확인 |
+| [UI-V2-S2](slices/UI-V2-S2.md) | 태스크 상세·역할·메모·고정·이력 | 관련 Python 59 통과, JS 경계·DOM 회귀 통과, 실제 Mac 메모 저장·이력 확인 |
+| [UI-V2-S3](slices/UI-V2-S3.md) | 영속 리소스·후보 등록·열기·복사 | 관련 Python 55 통과, JS 회귀, 실제 Mac 등록·복사 확인 |
+| [UI-V2-S4](slices/UI-V2-S4.md) | 태스크 완료·복원·자동 반영 설정 | 관련 Python 73 통과, 실제 Core→JS 및 DOM 회귀 통과; 네이티브 클릭은 S8 |
+| [UI-V2-S5](slices/UI-V2-S5.md) | 세션 상세·보고 설정·중복 제거 토큰 지표 | 관련 Python 61 통과, 실제 개인 합성 Devin/ATIF 대조, 원본 불변 확인 |
+| [UI-V2-S6](slices/UI-V2-S6.md) | 세션 복귀 조사·ID 복사·실행 중 앱 활성화 | exact session URL은 미지원; 안전한 fallback Python 15 및 JS 회귀 통과 |
+| [UI-V2-S7](slices/UI-V2-S7.md) | 명시적 확인 위치·새 보고·정렬 | 관련 Python 45 통과, thread race·task revision 불변 검증; 실제 UI는 S8 |
+| [UI-V2-S8](slices/UI-V2-S8.md) | 실제 Mac 수용 검증·기본 팝오버 런처·오류·재시작 | 전체 397 실행·395 통과·실모델 2 skip; 실제 Mac UI·설치 앱·오류·복구·재시작 확인 |
+
 M3-S01에서 새 태스크 상태는 파일을 원본으로 삼는다. 기존 SQLite 태스크·메모·View와
 수집 체크포인트는 그대로 남고, 새 저장소로 자동 이관하거나 두 원본을 동시에 갱신하지 않는다.
 실제 스킬의 후속 능동보고와 네이티브 메뉴 객체·지속 수집을 확인했다. 메뉴 드롭다운은 후속 실제 클릭·캡처까지 확인했다. 긴 대화의 압축 후 이행과 장기간 보고 정확도는 검증 범위 밖이다. 전체 결과는 [M3 진행 기록](M3_PROGRESS.md)에 구분한다.
@@ -57,17 +66,3 @@ M3-S01에서 새 태스크 상태는 파일을 원본으로 삼는다. 기존 SQ
 - 시작 시 미커밋 문서는 `docs/M2_PROGRESS.md`의 후속 점검 링크와 `docs/DESIGN_GAP_AUDIT.md`였다. 두 파일은 f20696d의 합성 경계 점검 기록이며 새 슬라이스의 테스트 결과가 아니다. 원문은 보존했고 기준선 문서 커밋 `747cc6c`에 반영했다.
 - 기존 M2 감사에서 지적한 원본 공백 이후 재개, 혼합 출처 상태 변경, 연결 범위 변경 시 신선도, 보류 status의 UI 처리와 의미 재서술 중복 한계는 기존 경로의 미해결 사항이다. 새 경로 도입으로 고쳐졌다고 보지 않는다.
 - 새 슬라이스의 시작 테스트·최종 테스트 결과는 [M3-S01](slices/M3-S01.md)에 기록한다. 실제 모델 테스트의 skip과 합성 실행을 구분한다.
-
-| [UI-V2-S1](slices/UI-V2-S1.md) | Python + WKWebView 팝오버·홈·검색·건강 상태 | 관련 Python 40 통과, JS 18 assertions, 실제 Mac 표시·검색·복귀 확인 |
-
-| [UI-V2-S2](slices/UI-V2-S2.md) | 태스크 상세·역할·메모·고정·이력 | 관련 Python 59 통과, JS 경계·DOM 회귀 통과, 실제 Mac 메모 저장·이력 확인 |
-
-| [UI-V2-S3](slices/UI-V2-S3.md) | 영속 리소스·후보 등록·열기·복사 | 관련 Python 55 통과, JS 회귀, 실제 Mac 등록·복사 확인 |
-
-| [UI-V2-S4](slices/UI-V2-S4.md) | 태스크 완료·복원·자동 반영 설정 | 관련 Python 73 통과, 실제 Core→JS 및 DOM 회귀 통과; 네이티브 클릭은 S8 |
-
-| [UI-V2-S5](slices/UI-V2-S5.md) | 세션 상세·보고 설정·중복 제거 토큰 지표 | 관련 Python 61 통과, 실제 개인 합성 Devin/ATIF 대조, 원본 불변 확인 |
-
-| [UI-V2-S6](slices/UI-V2-S6.md) | 세션 복귀 조사·ID 복사·실행 중 앱 활성화 | exact session URL은 미지원; 안전한 fallback Python 15 및 JS 회귀 통과 |
-
-| [UI-V2-S7](slices/UI-V2-S7.md) | 명시적 확인 위치·새 보고·정렬 | 관련 Python 45 통과, thread race·task revision 불변 검증; 실제 UI는 S8 |

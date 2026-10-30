@@ -15,7 +15,7 @@
       <button id="refresh" class="icon-button" aria-label="새로 고침" title="새로 고침">↻</button>
     </header>
     <div id="health" role="status" aria-live="polite">관측 정보를 불러오는 중</div>
-    <details id="diagnostics" hidden><summary>진단 보기</summary><pre id="diagnostic-text"></pre></details>
+    <details id="diagnostics" hidden><summary id="diagnostic-summary">진단 보기</summary><pre id="diagnostic-text"></pre></details>
     <div id="message" role="status" hidden></div>
     <main id="home">
       <div class="home-toolbar">
@@ -35,7 +35,7 @@
       <div class="detail-header"><button id="back" class="back-button" aria-label="태스크 목록으로 돌아가기">‹ 뒤로</button><h2 id="detail-title"></h2></div>
       <div id="detail-body" class="scroll"></div>
     </main>
-    <footer><span id="last-success">마지막 성공 수집 · 확인 중</span></footer>
+    <footer><span id="last-success">마지막 성공 수집 · 확인 중</span><div class="footer-actions"><button id="show-diagnostics" aria-label="관측 진단 보기" aria-controls="diagnostics" aria-expanded="false">진단</button><button id="quit" aria-label="Task Observer 종료">종료</button></div></footer>
   </div>
 </body>
 </html>

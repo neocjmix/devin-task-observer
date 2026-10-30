@@ -1,22 +1,28 @@
 # Devin Task Observer
 
-**현재 경로: M3 — Cooperative Task Tracking.** 기본 관측은 데몬이 모델 없이 수행하고, 의미 변화는 작업 중인 Devin 세션이 스킬과 CLI로 보고합니다. 상태는 로컬 JSON과 이력 파일에 보존하며 macOS 메뉴 막대에서 조회합니다. [M3 실행 결과](docs/M3_PROGRESS.md), [슬라이스 목록](docs/SLICES.md), [스킬·메뉴 검증](docs/slices/M3-S02.md), [보존 이관](docs/slices/M3-S03.md)이 실제 지원 범위를 정합니다.
+**현재 경로: M3 — Cooperative Task Tracking + UI V2.** 기본 관측은 데몬이 모델 없이 수행하고, 의미 변화는 작업 중인 Devin 세션이 스킬과 CLI로 보고합니다. 상태는 로컬 JSON과 이력 파일에 보존하며 macOS 상태 막대의 팝오버에서 조회·관리합니다. [UI V2 로드맵](docs/UI_V2_ROADMAP.md), [M3 실행 결과](docs/M3_PROGRESS.md), [슬라이스 목록](docs/SLICES.md)이 구현과 실제 검증 범위를 정합니다.
 
 설계 기준은 [변경안](docs/DESIGN_CHANGE_PROPOSAL_2026-10-30_KO.md)과 [낙관적 트랜잭션 계약](docs/STATE_TRANSACTION_CONTRACT_2026-10-30_KO.md)입니다. 최신 유효 보고를 사용하고 명시적 고정값·메모·이력을 보호합니다. 각 세션이 추적 항목을 정하며, 충돌의 의미적 조정도 세션이 맡습니다.
 
-## M3 실행 경로
+## 현재 실행 경로
 
 ```sh
 ./observerctl configure --workspace /absolute/personal/workspace
 python3 scripts/setup_menu.py
 ./observerctl integration install --workspace /absolute/personal/workspace --root /absolute/observer-state
 ./observerctl state --root /absolute/observer-state create --task my-task --title '작업 제목'
-./observerctl menu --root /absolute/observer-state
+"$HOME/Library/Application Support/Devin Task Observer/menu-runtime/bin/python" -m observer.desktop --root /absolute/observer-state
 ```
 
 선택한 Devin 작업 공간의 새 세션에서 `observer-reporting 스킬로 my-task 자동 보고를 시작해`라고 요청합니다. 세션은 훅의 ID를 확인하고 연결·보고 ON·항목 정의를 수행합니다. 이후 중요한 변화는 세션이 판단해 보고합니다. 보고 중지는 같은 스킬로 요청합니다. 스킬은 도구 승인을 우회하지 않습니다. 기본 권한 모드에서는 명령 실행 승인이 필요할 수 있습니다.
 
-메뉴는 상태·출처·마지막 보고·마지막 수집·오류를 보여주고 브라우저나 별도 모델을 실행하지 않습니다. `collect`는 메뉴 없는 수집기, `menu --snapshot`은 동일 화면 데이터의 JSON 진단입니다. 선택적 `.app` 설치와 로그인 자동 실행은 [메뉴 실행 문서](docs/slices/M3-S02_MENU.md)를 따릅니다. 일반 설치나 실행은 로그인 자동 실행을 등록하지 않습니다.
+`observer.desktop`은 **NSPopover + 로컬 WKWebView**를 기본으로 실행합니다. 화면은 저장소의 HTML/JS이며 외부 웹페이지·HTTP 서버·별도 브라우저가 필요하지 않습니다. 태스크 상세, 항목별 출처와 시각, 메모·이력, 등록 리소스, 연결 세션, 수집 오류와 마지막 정상 기록을 보여줍니다. 사용자 개입은 명시적인 항목 역할과 요청 여부로 표시하며 자유 상태값에서 추측하지 않습니다. 새 보고 확인 위치는 태스크별로 저장하고 사용자가 `여기까지 확인`을 눌렀을 때만 이동합니다.
+
+등록 리소스와 자동 발견 후보는 구분합니다. 태스크 완료·관측 OFF는 해당 태스크의 자동 반영을 멈추며 공유 세션의 전역 수집은 계속됩니다. 세션 사용량은 확인된 로컬 기록의 합계이며 과금 총량을 보증하지 않습니다. 정확한 Devin 세션 탭 이동은 지원하지 않으며, 실행 중인 Devin 앱 활성화와 세션 ID 복사를 제공합니다.
+
+`collect`는 UI 없는 수집기입니다. `observer.desktop --snapshot`은 새 UI의 읽기 전용 JSON 투영을 출력합니다. `observer.desktop --legacy-menu` 또는 기존 `observerctl menu`는 이전 **NSMenu**를 실행합니다. 새 `.app`은 `python3 scripts/setup_menu.py --app /absolute/path/Observer.app --root /absolute/observer-state`로 만들 수 있습니다. 기존 관리형 앱은 같은 설정·상태 경로를 지정한 `--upgrade-app`으로만 전환하며, 런처를 확인하고 백업한 뒤 교체합니다. 수정되거나 다른 앱인 경우 거절합니다. Python과 Codex/Devin CLI는 앱에 포함하지 않습니다.
+
+일반 설치·실행·앱 전환은 로그인 자동 실행을 등록하지 않습니다. 기존 수집기·NSMenu의 선택적 자동 실행 계약은 [메뉴 실행 문서](docs/slices/M3-S02_MENU.md)에 보존돼 있습니다. 현재 Mac의 기존 로컬 앱 런처를 팝오버 기본 경로로 전환하고 실제 재실행·기존 태스크 표시·첫 수집 후 정상 상태를 확인했습니다. [S8 수용 결과](docs/slices/UI-V2-S8.md)는 합성 데이터의 화면 검증과 실제 개인 합성 세션 관측을 구분하며, VoiceOver 음성 출력과 에이전트 5–10개의 동시 실행은 미검증입니다.
 
 파일 상태 CLI·스키마·편집·복구는 [M3-S01 CLI 계약](docs/slices/M3-S01_CLI.md), 에이전트 명령은 [스킬](skills/observer-reporting/SKILL.md)에 있습니다. 기존 SQLite 자료는 명시적 `migrate plan/apply/check/rollback`으로 새 전용 root에 보존 이관합니다. 기존 DB와 새 root를 동시에 태스크 원본으로 쓰지 않습니다. 이관 이후 새 보고가 있으면 자동 롤백을 거절합니다.
 
@@ -24,7 +30,7 @@ python3 scripts/setup_menu.py
 
 ## 보존 중인 P0~M2 경로
 
-아래는 **기존 SQLite·웹 대시보드·수동 의미 분석 경로**의 기록입니다. `run`은 호환성을 위해 기존 웹 서버를 실행합니다. M3의 기본 진입점은 `menu`이며 별도 모델 분석을 사용하지 않습니다.
+아래는 **기존 SQLite·웹 대시보드·수동 의미 분석 경로**의 기록입니다. `run`은 호환성을 위해 기존 웹 서버를 실행합니다. 현재 기본 UI는 위의 `observer.desktop`이며 별도 모델 분석을 사용하지 않습니다.
 
 Private, local-first task observability for Devin Desktop. The observer reads the source without controlling Devin and stores task data separately. Collection and dashboard viewing make no LLM calls and send no telemetry.
 
@@ -46,9 +52,9 @@ With an explicitly enabled model policy, **manual Semantic Refresh** reads only 
 
 `SemanticModelAdapter` uses an **existing external Codex CLI** for personal development and an approved **Devin ACP** for internal deployment. No CLI binary is bundled or downloaded by Observer. Internal policy rejects Codex and never falls back to it. Actual Codex + synthetic Desktop/browser validation succeeded; after personal browser reauthentication, actual ACP created an independent analysis session, streamed JSON and passed the two-session patch integration test. Dangerous tool denial and internal organizational policy are not production-validated. See [M2 results, token usage, policy and remaining gates](docs/M2_PROGRESS.md).
 
-## Local entry point
+## Legacy local entry point
 
-The runtime uses the Python standard library (tested with Python 3.14 on this Mac); there is no pip install, cloud backend or desktop runtime dependency. From this checkout:
+The legacy collector/web runtime uses the Python standard library (tested with Python 3.14 on this Mac); it needs no pip install or cloud backend. The current native UI separately uses optional Cocoa/WebKit Python bridges. To run the retained web path from this checkout:
 
 ```sh
 ./observerctl configure --workspace /absolute/path/to/personal-worktree
@@ -71,7 +77,7 @@ This registers/removes a user LaunchAgent without admin access. macOS may requir
 
 Development regression tests use `python3 -m unittest discover -s tests -q`; Node is needed only for the JavaScript controller tests. Tests that initialize a disposable repository need a working Git executable (optionally set `DEVIN_OBSERVER_GIT` for the test process). On the validation Mac, the system Git is blocked by an unaccepted Xcode license; an already-installed alternative Git was explicitly configured. No license was accepted on the user's behalf.
 
-## Optional semantic configuration
+## Legacy optional semantic configuration
 
 Semantics stays off unless explicitly configured. `observerctl configure` accepts `--semantic-adapter codex_exec|devin_acp|off`, `--semantic-environment personal|internal`, and an existing `--semantic-executable` absolute path. Approved ACP additionally requires `--approve-acp`; the flag is not an authentication or organizational approval substitute. Saved `semantic` policy also supports per-day/per-task call and reserved-token limits. The UI never accepts a provider command from a browser request. Use only personal/synthetic data with personal Codex. See the normative model contract and [M2 limits](docs/M2_PROGRESS.md#실행-정책과-예산).
 

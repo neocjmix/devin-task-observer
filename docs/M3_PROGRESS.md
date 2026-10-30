@@ -1,8 +1,22 @@
 # M3 — Cooperative Task Tracking
 
-2026-10-31 후속 UI V2: [UI-V2-S0](slices/UI-V2-S0.md)의 순수 읽기 투영·합성 fixture를 추가했다.
-M3 저장·트랜잭션·NSMenu 동작은 변경하지 않았다. 신규 19개 통과, 전체 292개 실행·290 통과·
-기존 실제 모델 2 skip·실패 0. S1 팝오버와 이후 기능은 아직 계획이며, 아래 M3 실증과 구분한다.
+2026-10-31 후속 UI V2: **S0–S7의 투영·팝오버·태스크 상세·리소스·관리 설정·세션 상세·
+명시적 확인 위치를 구현하고 검증했다.** 기본 진입점은 `observer.desktop`의 NSPopover +
+로컬 WKWebView이며 HTML/JS 화면과 Python Core를 사용한다. 기존 NSMenu는
+`observer.desktop --legacy-menu`와 `observerctl menu`로 남는다. 모델 호출·외부 웹페이지·
+HTTP 서버를 새 UI에 추가하지 않았다. [로드맵](UI_V2_ROADMAP.md)과 아래 UI V2 표에서
+슬라이스별 실제 실행·합성 테스트·미검증 경계를 구분한다.
+
+[S8](slices/UI-V2-S8.md)에서는 기존 관리형 로컬 `.app`의 경로·원문을 검증하고 진입점 백업 후
+새 기본 경로로 전환했다. 설치 앱을 실제로 재실행해 기존 M3 합성 태스크 표시와 첫 수집 후
+정상 상태 회복을 확인했다. 실제 Mac의 light/dark와 종료 버튼의 정상 종료(exit 0)도 확인했다.
+합성 세션 8개·태스크 7개의 화면 검증과 실제 개인 합성 세션 4개의 관측은 구분한다.
+VoiceOver 음성 출력과 에이전트 5–10개의 실제 동시 실행은 미검증이다. 일반 설치나 전환은
+로그인 자동 실행을 등록하지 않으며 Python 또는 Codex/Devin CLI를 앱에 포함하지 않는다.
+
+S0 당시 결과는 신규 19개 통과, 전체 292개 실행·290 통과·기존 실제 모델 2 skip·실패 0이었다.
+이는 S0 기준의 기록이며 이후 UI V2 전체 결과로 재사용하지 않는다. 아래 M3 실증도 당시
+보고·NSMenu 결과를 그대로 보존한다.
 
 2026-10-30. `p0/desktop-probe`와 기존 [Draft PR #1](https://github.com/neocjmix/devin-task-observer/pull/1)을 이어서 작업했다.
 M3-S02/S03의 시작 기준선은 M3-S01 커밋 `65420919b11b75acc2f8eae630b7ee0ddb02a3ba`다.
@@ -19,7 +33,7 @@ A는 후속 작업에서 추가 보고 지시 없이 B의 상태를 읽고 새 �
 직접 테스트하기로 했다. 당시 추가 구현을 멈추고, [기준선 기록](SLICES.md#개인-실사용-기준선-확정--2026-10-30)에
 고정 커밋·검증 범위·미검증 항목과 후속 작업 기준을 남겼다.
 이후 사용자 요청으로 메뉴 깊이·문구·작은 그래픽 요소만 [M3-S04](slices/M3-S04.md)에서 정리했다.
-아래 S01~S03 실행 결과는 당시 기록이며, 현재 UI 변경 검증은 S04를 따른다.
+아래 S01~S03 실행 결과와 S04 UI 검증은 당시 기록이다. 최신 UI는 후속 UI V2 검증을 따른다.
 
 ## 적용한 설계
 
@@ -185,7 +199,8 @@ DEVIN_OBSERVER_GIT=/Library/Developer/CommandLineTools/usr/bin/git python3 -m un
 
 ## 로컬 사용 경계와 남은 제약
 
-- Python Core/CLI에 선택적 `rumps 0.4.0`·PyObjC Cocoa bridge를 더했다. Swift·Electron은 없다.
+- M3 당시 Python Core/CLI에 선택적 `rumps 0.4.0`·PyObjC Cocoa bridge를 더했고,
+  UI V2는 WebKit bridge와 로컬 HTML/JS를 사용한다. Swift·Electron은 없다.
   현재 Mac의 로컬 alias 앱 실행기는 checkout·venv·설정 경로를 참조한다. 독립 배포·공증 앱이
   아니며 Python이나 Codex/Devin CLI를 앱에 복사하지 않는다. 자세한 실행·한도는
   [메뉴 검증 기록](slices/M3-S02_MENU.md)을 따른다.
@@ -198,7 +213,7 @@ DEVIN_OBSERVER_GIT=/Library/Developer/CommandLineTools/usr/bin/git python3 -m un
 - 파일 손상과 규약 밖 편집은 원문·오류·마지막 정상 상태를 보존한다. 임의 외부 writer나
   하드웨어 전원 장애까지 완전한 원자성을 보장하지 않는다. 이력의 장기 증가·보관 정책은 남아 있다.
 - 이관은 새 전용 root만 지원한다. 실제 사용자 DB 이관, 기존 파일 root 병합은 하지 않았다.
-  legacy View·자원·확인 위치는 가져온 스냅샷이며 새 메뉴의 전체 편집·확인 workflow가 아니다.
+  legacy View·자원·확인 위치는 가져온 스냅샷이며 UI V2의 새 리소스·확인 위치로 자동 변환하지 않는다.
   후속 파일 변경이 있으면 보수적 롤백을 거절한다. 구·신 DB를 양방향 갱신하거나 자동 전환하지 않는다.
 
 장기 실행과 개인 데이터 전환은 별도 검증 범위로 유지한다. 테스트 수나 합성 보고 성공을
@@ -206,4 +221,24 @@ DEVIN_OBSERVER_GIT=/Library/Developer/CommandLineTools/usr/bin/git python3 -m un
 
 ## UI V2 후속
 
-[UI-V2-S1](slices/UI-V2-S1.md)에서 독립 팝오버 진입점과 로컬 JS 화면을 구현하고 실제 Mac에서 검증했다. 기존 NSMenu는 유지한다. 후속 상세·편집·세션 화면은 각 슬라이스에서 검증한다.
+| 슬라이스 | 실제 구현 | 확인한 범위와 한계 |
+|---|---|---|
+| [UI-V2-S0](slices/UI-V2-S0.md) | 읽기 전용 투영과 합성 fixture, M:N·출처·핀·메모·후보·last_good 보존 | 신규 19개 통과. 이 단계에서는 저장 스키마·NSMenu 불변 |
+| [UI-V2-S1](slices/UI-V2-S1.md) | 420×600 기준 팝오버, 로컬 HTML/JS 홈·검색·탐색·수집 상태 | 집중 Python 40개와 JS 검증. 실제 Mac에서 합성 태스크 7개·탐색·검색 유지 확인 |
+| [UI-V2-S2](slices/UI-V2-S2.md) | 명시적 역할별 상황·개입·다음 행동, 자유 추적값, 출처·핀·근거, 메모·View·페이지 이력, OCC 편집 | 집중 59개와 JS 검증. 실제 Mac에서 개입 항목·메모 저장 revision 8·이력 확인. 역할 없는 기존 파일은 유효 |
+| [UI-V2-S3](slices/UI-V2-S3.md) | 등록 리소스 추가·수정·보관·복원, 후보와 분리, URL·문서 열기·복사 | 집중 55개와 JS 검증. 실제 Mac에서 Markdown 표시·클립보드 복사·등록 저장 확인. 외부 상태는 unknown |
+| [UI-V2-S4](slices/UI-V2-S4.md) | 완료·재개·태스크 관측 ON/OFF, 보고 설정 보존, 공유 세션의 전역 관측 유지 | 집중 73개와 JS 검증. OFF 태스크에는 보고·후보·계획을 자동 반영하지 않음. 메모·핀·리소스·연결·이력 보존 |
+| [UI-V2-S5](slices/UI-V2-S5.md) | 세션 활동/보고 분리, 보고 설정, workspace·다대다, 근거·시각을 갖춘 토큰 조회와 stale 표시 | 집중 61개. 허용된 실제 합성 세션의 32노드→16메시지와 ATIF 사용량 대조. 보존 기록 합계이며 과금·평생 누적·fork 중복 제거 보장 아님 |
+| [UI-V2-S6](slices/UI-V2-S6.md) | 실행 중인 Devin 앱 활성화와 세션 ID 복사 | 경계 테스트 15개. 정확한 세션 탭 이동은 미지원. 세션 URL·session/load·재개·프롬프트를 사용하지 않음 |
+| [UI-V2-S7](slices/UI-V2-S7.md) | 별도 파일의 태스크별 보고 확인 위치, 새 보고 필터·정렬·명시적 확인 | 집중 45개와 JS 검증. 조회는 확인 위치를 바꾸지 않음. 경합·손상·재시작·태스크 독립성 검사. 과거 위치 미확인은 새 보고로 확립 |
+| [UI-V2-S8](slices/UI-V2-S8.md) | 기본 팝오버 진입점과 관리형 앱의 백업·검증된 전환, 실제 Mac 수용 | 런처·진입점 13개 통과. light/dark·종료 exit 0·설치 앱 재실행·첫 수집 후 정상 회복 확인. 합성 8세션/7태스크 화면과 실제 개인 합성 4세션 관측을 구분. VoiceOver 음성·5–10개 에이전트 동시 실행 미검증 |
+
+집중 테스트 수는 각 슬라이스 당시 실행 집합이며 서로 중복되므로 합산하지 않는다. 실제
+Devin 보고·실제 로컬 원본 조회·합성 데이터의 네이티브 화면 검증은 서로 다른 증거다.
+보고 ON은 에이전트 이행 보증이 아니며 `attention_required`도 Core가 판단한 사실이 아니다.
+표시된 항목의 작성 세션과 시각, 오래된 값과 오류를 함께 제공한다.
+
+확인 위치는 `ui/read-cursors.json`의 자체 revision으로 저장하며 [별도 계약](UI_READ_CURSOR_CONTRACT.md)을
+따른다. task revision과 성공 보고의 `last_report_revision`을 구분한다. 메모·핀·리소스·관리 설정의
+변경을 새 보고로 세지 않고, 한 세션이 여러 태스크에 참여해도 각 태스크의 확인 위치는 독립적이다.
+기존 수집·태스크 트랜잭션·원본 읽기 전용 경계는 유지한다.

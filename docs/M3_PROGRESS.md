@@ -203,3 +203,7 @@ DEVIN_OBSERVER_GIT=/Library/Developer/CommandLineTools/usr/bin/git python3 -m un
 
 장기 실행과 개인 데이터 전환은 별도 검증 범위로 유지한다. 테스트 수나 합성 보고 성공을
 모든 실제 작업에서 수동 정리가 사라진다는 보장으로 해석하지 않는다.
+
+## UI V2 후속
+
+[UI-V2-S1](slices/UI-V2-S1.md)에서 독립 팝오버 진입점과 로컬 JS 화면을 구현하고 실제 Mac에서 검증했다. 기존 NSMenu는 유지한다. 후속 상세·편집·세션 화면은 각 슬라이스에서 검증한다.

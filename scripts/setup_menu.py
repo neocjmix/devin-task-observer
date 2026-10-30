@@ -80,10 +80,11 @@ def main(argv=None):
         venv.EnvBuilder(with_pip=True).create(root)
     os.chmod(root, 0o700)
     python = root / 'bin/python'
-    # Only the Cocoa bridge is needed; do not install the all-framework PyObjC bundle.
+    # Thin Cocoa/WebKit bridges only; no all-framework bundle or browser runtime.
     subprocess.run([str(python), '-m', 'pip', 'install', '--disable-pip-version-check',
-                    'rumps==0.4.0', 'pyobjc-framework-Cocoa==12.2.2'], check=True)
-    subprocess.run([str(python), '-c', 'import rumps, AppKit; print("Native menu imports OK")'], check=True)
+                    'rumps==0.4.0', 'pyobjc-framework-Cocoa==12.2.2',
+                    'pyobjc-framework-WebKit==12.2.2'], check=True)
+    subprocess.run([str(python), '-c', 'import rumps, AppKit, WebKit; print("Native UI imports OK")'], check=True)
     if args.app:
         subprocess.run([str(python), '-m', 'pip', 'install', '--disable-pip-version-check',
                         'py2app==0.28.10', 'setuptools==84.2.1'], check=True)

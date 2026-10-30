@@ -2,12 +2,11 @@
 
 Goal: resume 5+ asynchronous Devin tasks without opening every session. Best effort; honest failure; minimal uncertainty UI. Keep deterministic observation LLM-free, provenance and history preserved, and session ownership untouched.
 
-Run one slice per Codex execution; commit and push after tests. Do not mistake proposed UI for implemented behavior.
+The user authorized S1–S8 in one autonomous execution on 2026-10-31. Implement and validate in dependency order, with a commit per slice.
 
-2026-10-31 status: **S0 implemented and tested**, see [UI-V2-S0 evidence and S1 entry conditions](slices/UI-V2-S0.md).
-S1–S8 remain planned. The current runtime still uses NSMenu; no storage migration or popover was added.
-The v1 sources cannot yet supply lifecycle, read counts, typed intervention, session tokens or locators.
-S1 must gate those features instead of manufacturing the example screen values.
+2026-10-31 status: **S0 and S1 implemented and tested**. See [S0](slices/UI-V2-S0.md) and [S1](slices/UI-V2-S1.md).
+S2–S8 remain in progress/planned. The optional popover uses local HTML/JS with Python; the existing NSMenu remains available.
+Unsupported source contracts remain explicitly gated until their implementation slice.
 
 S0: Read-only normalized projections and synthetic fixtures. Preserve item-level actor/time, many-to-many task-session mapping, last_good and errors. No storage migration.
 
@@ -27,4 +26,4 @@ S7: Last-seen changes using explicit task read cursors, attention and recent rep
 
 S8: Real macOS acceptance with 5-10 parallel sessions, dark/light, focus, accessibility, errors, stale records, restart, no LLM observation calls.
 
-Every run: inspect latest branch/code and M3 contracts, implement only next slice, test regressions, record verified vs unverified behavior, commit and push. Synthetic M3 parser content is not product copy.
+Every run: inspect latest branch/code and M3 contracts, implement slices in dependency order, test regressions, record verified vs unverified behavior, commit and push. Synthetic M3 parser content is not product copy.

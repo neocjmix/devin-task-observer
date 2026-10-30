@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+  <title>Task Observer</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div id="app">
+    <header class="app-header">
+      <h1>Task Observer</h1>
+      <button id="refresh" class="icon-button" aria-label="새로 고침" title="새로 고침">↻</button>
+    </header>
+    <div id="health" role="status" aria-live="polite">관측 정보를 불러오는 중</div>
+    <details id="diagnostics" hidden><summary>진단 보기</summary><pre id="diagnostic-text"></pre></details>
+    <div id="message" role="status" hidden></div>
+    <main id="home">
+      <div class="home-toolbar">
+        <label class="search-label"><span class="sr-only">태스크 검색</span><input id="search" type="search" placeholder="태스크 검색" autocomplete="off"></label>
+        <div class="filters" role="group" aria-label="태스크 필터">
+          <button id="filter-all" aria-pressed="true">전체 <span id="task-count">0</span></button>
+          <button id="filter-errors" aria-pressed="false">확인 필요 <span id="error-count">0</span></button>
+        </div>
+      </div>
+      <div id="task-list" class="scroll" aria-label="태스크 목록"></div>
+      <p id="empty" class="empty" hidden>등록된 태스크가 없습니다.</p>
+    </main>
+    <main id="detail" hidden>
+      <div class="detail-header"><button id="back" class="back-button" aria-label="태스크 목록으로 돌아가기">‹ 뒤로</button><h2 id="detail-title"></h2></div>
+      <div id="detail-body" class="scroll"></div>
+    </main>
+    <footer><span id="last-success">마지막 성공 수집 · 확인 중</span></footer>
+  </div>
+</body>
+</html>

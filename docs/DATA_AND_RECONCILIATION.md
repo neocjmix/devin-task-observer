@@ -4,6 +4,8 @@
 
 [설계 변경안](DESIGN_CHANGE_PROPOSAL_2026-10-30_KO.md)의 파일 원본·직접 편집·버전 스키마·범위별 오류 격리 요구가 새 방향이다. 보고를 켠 작업 에이전트가 CLI로 의미 변경을 전달하고 Core가 검증하는 계약을 계획한다. 다대다·출처·인간 정보·충돌·신선도 보호는 유지한다. 파일 저장의 원자성, 보고와 checkpoint, 기존 SQLite의 전환은 아직 미설계·미구현이며 아래 DB 트랜잭션 보장을 새 저장 구조에 그대로 적용했다고 가정하지 않는다. 아래 내용은 기존 P0~M2 계약·구현 기록이다.
 
+후속 확정된 [상태 트랜잭션 계약](STATE_TRANSACTION_CONTRACT_2026-10-30_KO.md)은 낙관적 읽기–판단–커밋, 세션별 항목 정의·업데이트 출처, 명시적 고정값 보호를 정한다. 미래 설계에서는 사람이 수정한 추적값도 고정하지 않았다면 후속 유효 보고로 갱신할 수 있고 메모·변경 이력은 항상 보존한다. 이 정책은 아래 기존 M2의 인간 소유 전환·보호 규칙과 충돌하는 부분보다 우선하며, 현재 코드를 바꿨다는 뜻은 아니다.
+
 ## Entities
 
 Task(id,title,description,lifecycle,createdAt,updatedAt); Session(id,provider,externalId,model,runtimeState,lastSeen,sourceVersion); Contribution(id,taskId,sessionId,role,scope,linkedBy,confidence,from,to) permits many-to-many relationships.

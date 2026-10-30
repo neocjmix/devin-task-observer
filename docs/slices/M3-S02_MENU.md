@@ -58,7 +58,7 @@ Python 프레임워크·인터프리터나 Codex/Devin CLI를 앱에 복사하�
 | 장애 복구 | 원본 누락 시 마지막 성공·체크포인트 보존, 지수 대기 상한 내 재시도, 원본 복귀 후 수집 재개; timeout/비정상 종료·출력 거절 |
 | 파일 건강 | 직접 편집·JSON 손상은 오류와 last_good로 표시, 다른 정상 태스크는 유지 |
 | 실제 Cocoa 객체 | 실행 중 NSStatusItem.isVisible()=true, title `◉`, NSMenu와 중첩 submenu에서 태스크·보고 ON·업데이트 세션·근거·사용자 메모·새로고침·종료 항목을 직접 읽어 확인 |
-| 실제 화면 클릭 | CUA가 windowless accessory 앱에 연결하지 못해 드롭다운 클릭·화면 픽셀은 미검증. native isVisible을 화면 캡처 성공으로 간주하지 않음 |
+| 실제 화면 클릭 | 후속 검증에서 사용자가 macOS 자동화·접근성 권한을 승인·인증한 뒤 AppleScript로 상태바 아이콘, 태스크·항목·세션 하위 메뉴를 실제 클릭하고 화면 캡처. 수동 새로고침 이후 0.776초 내 수집 성공, 상태 파일 해시 불변 |
 | 최종 로컬 앱 | 개인 Applications에 실행기 설치·실행, 지정된 M3 합성 작업 공간만 관측하도록 기존 설정 연결; service lock 유지·last_success 갱신·last_error 없음 |
 
 네이티브 객체 검증은 임시 합성 태스크 하나에서 실행했다. 합성 값 `3개 통과`는 메뉴 전달 테스트용 보고이며
@@ -72,3 +72,9 @@ Python 프레임워크·인터프리터나 Codex/Devin CLI를 앱에 복사하�
 - 스킬 활성 여부와 hook 전달 기록은 보고 이행·내용 정확성의 증명이 아니다. 마지막 보고 시각과 출처를 확인해야 한다.
 - app/venv/checkout 이동·Python 교체 시 로컬 실행기를 다시 만들 수 있다. 설치가 수집 시작이나 영구 자동 실행 동의의 대체는 아니다.
 - native 브리지의 검증 조합은 이 Mac의 Python 3.14·rumps 0.4.0·PyObjC 12.2.2다. 다른 macOS/Python 조합은 미검증이다.
+
+## 후속 실제 화면 검증 — 2026-10-30
+
+최초 CUA의 창 없는 앱 연결 실패와 별도로, 사용자가 승인한 AppleScript/System Events 경로로 실제 UI를 조작했다. 현재 태스크 revision 14, 6개 항목과 핀·메모, 항목 작성 세션과 `reported` 검증 구분, 세션 A의 보고 OFF·마지막 Stop 활동이 표시됐다. 메뉴의 `지금 수집·상태 새로고침`을 클릭한 뒤 수집 간격은 0.819초였고, 기본 5초 주기보다 앞서 성공했다. 상태 JSON의 해시는 동일했다. 이 검증을 위해 제품 코드를 변경하거나 모델을 호출하지 않았다.
+
+로컬 증거는 `~/devin-observer-research-lab/2026-10-30-m3/native-menu-ui-acceptance.json`과 `screenshots/observer-menu-detail.png`, `screenshots/observer-session-off-full.png`다. 캡처에는 개인 데스크톱 배경이 포함되어 Git에는 넣지 않는다. 이 결과는 해당 Mac에서 실제로 조작한 메뉴 범위의 증거이며 모든 macOS 조합·장기 사용성을 보증하지 않는다.

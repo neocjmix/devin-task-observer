@@ -7,8 +7,9 @@ M3-S02/S03의 시작 기준선은 M3-S01 커밋 `65420919b11b75acc2f8eae630b7ee0
 Devin 세션 A의 구현 보고와 세션 B의 실패·블로커·다음 행동 보고가 같은 태스크에 보존됐다.
 A는 후속 작업에서 추가 보고 지시 없이 B의 상태를 읽고 새 보고를 커밋했다. 이 과정의
 충돌·고정값 보호는 검증됐지만, A가 보고한 완료 내용에는 독립 검사에서 발견한 오류가 남았다.
-실제 메뉴 드롭다운의 화면 클릭, 개인 기존 DB의 실제 이관, 장기 사용은
-완료로 보고하지 않는다. 기능별 증거와 최종 상태는 [슬라이스 목록](SLICES.md)을 따른다.
+접근성 승인 후 실제 메뉴 드롭다운·상세·보고 OFF 표시와 수동 수집 클릭도 확인했다.
+개인 기존 DB의 실제 이관과 장기 사용은 완료로 보고하지 않는다.
+기능별 증거와 최종 상태는 [슬라이스 목록](SLICES.md)을 따른다.
 
 ## 적용한 설계
 
@@ -32,7 +33,7 @@ M3의 메뉴 조회·수집·CLI는 모델을 호출하지 않는다. 세션 자
 | 슬라이스 | 실제 구현 | 검증 범위 |
 |---|---|---|
 | [M3-S01](slices/M3-S01.md) | 파일 원본 상태, 스키마, 태스크–세션 다대다 연결, 항목 정의·보고·보관, ON/OFF, 출처, 낙관적 커밋·중복 방지·중단 복구·안전 편집 | 단위·실제 CLI·동시 프로세스·중단 복구. 실제 Devin 전달은 S02에서 확인 |
-| [M3-S02](slices/M3-S02.md) | 선택한 workspace의 스킬/최소 훅 설치·조회·제거, 실제 세션 context 전달, 독립 수집, Python 메뉴 막대·로컬 앱 실행기 | 실제 Desktop A와 CLI B3 보고, 임시 launchd 재시작, Cocoa 객체 확인. 화면 드롭다운 클릭 미검증 |
+| [M3-S02](slices/M3-S02.md) | 선택한 workspace의 스킬/최소 훅 설치·조회·제거, 실제 세션 context 전달, 독립 수집, Python 메뉴 막대·로컬 앱 실행기 | 실제 Desktop A와 CLI B3 보고, 임시 launchd 재시작, Cocoa 객체·실제 메뉴 클릭·상세·수동 수집 확인 |
 | [M3-S03](slices/M3-S03.md) | 기존 Observer DB의 plan/apply/check/rollback, 일관된 backup, 새 전용 파일 root 게시, 원본 archive, 보수적 복원 | 실제 SQLite·CLI를 사용한 합성 데이터 검증. 사용자 기존 DB 이관은 수행하지 않음 |
 
 훅은 실제 session ID와 context 경로를 전달하고 lifecycle 활동을 기록한다. 보고를 대신
@@ -141,13 +142,35 @@ DEVIN_OBSERVER_GIT=/Library/Developer/CommandLineTools/usr/bin/git python3 -m un
 | 수집·메뉴·설치 | 관련 20개 단위·프로세스 테스트 통과. 수집/재시도/중복 실행 거절/종료/재시작 후 중복 없음, 손상 파일 last_good 표시 |
 | 실제 지속 실행 | 임시 launchd collector bootstrap, SIGTERM 이후 새 PID로 재시작, bootout 확인. 실제 A/B 보고가 쌓인 메뉴 앱도 SIGTERM 후 재실행하여 수집 성공·revision 14·항목 6개·메모 1개 및 state 파일 해시 불변 확인. 영구 로그인 자동 실행은 설치하지 않음 |
 | 실제 메뉴 객체 | NSStatusItem visible, 메뉴·하위 메뉴의 태스크/보고 ON/작성 세션/근거/인간 메모/새로고침/종료 확인 |
-| 실제 화면 클릭 | CUA가 창 없는 accessory 앱에 연결하지 못해 메뉴 드롭다운 클릭·화면 픽셀 검증 미완료 |
+| 실제 화면 클릭 | 최초 CUA의 창 없는 앱 연결 시도는 실패. 후속 사용자 접근성 승인 뒤 실제 상태 아이콘·태스크 하위 메뉴·항목 상세·세션 OFF·수동 수집 클릭과 화면 캡처 확인 |
+
+### 후속 실제 메뉴 UI 검증
+
+최초에는 CUA가 창 없는 accessory 앱에 연결하지 못해 Cocoa 객체까지만 확인했다. 이후
+사용자가 직접 접근성 권한을 승인·인증했고, System Events의 UI 접근이 활성화된 뒤 실제
+상태 막대의 `◉` 아이콘을 클릭했다. 이 후속 결과는 이전 미검증 상태를 해소하며, 권한이
+자동으로 부여됐거나 최초 CUA 시도가 성공했다는 의미는 아니다.
+
+- 태스크 하위 메뉴에서 revision 14, 추적 항목 6개, 인간 고정값과 메모를 확인했다.
+- `test-execution` 상세에서 마지막 작성 세션 `colorful-zinc`와 독립 검증 사실이 아닌
+  세션 보고라는 표시를 확인했다.
+- A 기여에서 보고 OFF와 마지막 Stop 활동이 표시됐다.
+- 실제 수동 수집 메뉴를 클릭했다. 증거 파일은 클릭 처리 0.776초·관측된 수집 간격
+  0.819초, `last_error: null`, 상태 파일 해시 불변을 기록한다. 이는 한 번의 로컬 실행
+  관측이며 지속 성능의 보장은 아니다.
+
+증거는 실험실의 `native-menu-ui-acceptance.json`과 `screenshots/` 아래의
+`observer-menu-open.png`, `observer-task-menu.png`, `observer-menu-detail.png`,
+`observer-session-off-full.png`다.
+원본 스크린샷에는 다른 데스크톱 내용이 포함될 수 있어 로컬에만 보관하며 Git에 넣지 않는다.
+이 후속 검증에는 제품 코드 변경·모델 호출·회귀 테스트 재실행이 없었다.
+위 테스트 결과와 토큰 사용량은 기존 실행의 수치를 그대로 유지한다.
 
 원본 대화록·DB·개인 설정·앱·진단 산출물은 Git에 넣지 않는다. 최소 로컬 증거는
 `~/devin-observer-research-lab/2026-10-30-m3/`의 `session-b3-acceptance.json`,
 `session-b2-cleanup.json`, `desktop-followup-acceptance.json`,
 `desktop-stop-acceptance.json`, `synthetic-parser-independent-check.json`,
-`session-usage-metrics.json`과 각 실행 요약이다.
+`session-usage-metrics.json`, `native-menu-ui-acceptance.json`과 각 실행 요약이다.
 합성 이관 증거 위치와 상세 보존 비교는 [M3-S03](slices/M3-S03.md)에 기록했다.
 
 ## 로컬 사용 경계와 남은 제약
@@ -168,5 +191,5 @@ DEVIN_OBSERVER_GIT=/Library/Developer/CommandLineTools/usr/bin/git python3 -m un
   legacy View·자원·확인 위치는 가져온 스냅샷이며 새 메뉴의 전체 편집·확인 workflow가 아니다.
   후속 파일 변경이 있으면 보수적 롤백을 거절한다. 구·신 DB를 양방향 갱신하거나 자동 전환하지 않는다.
 
-메뉴의 실제 화면 클릭과 장기 실행, 개인 데이터 전환은 별도 검증 범위로 유지한다. 테스트 수나
-합성 보고 성공을 모든 실제 작업에서 수동 정리가 사라진다는 보장으로 해석하지 않는다.
+장기 실행과 개인 데이터 전환은 별도 검증 범위로 유지한다. 테스트 수나 합성 보고 성공을
+모든 실제 작업에서 수동 정리가 사라진다는 보장으로 해석하지 않는다.

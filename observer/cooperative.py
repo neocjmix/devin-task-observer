@@ -7,6 +7,8 @@ from .file_store import FileStore, StateError
 from .state_schema import validate, ID, SID, _validate
 
 HUMAN = {'kind': 'human', 'session_id': None}
+ITEM_EDIT_FIELDS = ('item_id', 'title', 'value', 'status', 'evidence', 'pinned',
+                    'archived', 'role', 'attention_required')
 
 
 def now():
@@ -131,7 +133,9 @@ class CooperativeState:
                             raise StateError('item_exists', 'reuse existing item ID with update')
                         if not {'title', 'value', 'status', 'evidence'} <= operation.keys():
                             raise StateError('validation_error', 'define requires title, value, status and evidence')
-                        item = {k: copy.deepcopy(operation[k]) for k in ('item_id', 'title', 'value', 'status', 'evidence')}
+                        item = {k: copy.deepcopy(operation[k]) for k in
+                                ('item_id', 'title', 'value', 'status', 'evidence', 'role', 'attention_required')
+                                if k in operation}
                         item.update(pinned=False, archived=False, created_by=actor.copy(), item_revision=0,
                                     verification='reported')
                         value['items'].append(item)
@@ -148,7 +152,7 @@ class CooperativeState:
                         else:
                             if len(operation) == 2:
                                 raise StateError('validation_error', 'update has no changes')
-                            for key in ('title', 'value', 'status', 'evidence'):
+                            for key in ('title', 'value', 'status', 'evidence', 'role', 'attention_required'):
                                 if key in operation:
                                     item[key] = copy.deepcopy(operation[key])
                     self._stamp(item, value, actor, request['report_id'])
@@ -179,7 +183,7 @@ class CooperativeState:
         value = row['state']
         return {'schema_version': 1, 'task_id': task_id, 'expected_revision': value['revision'],
                 'title': value['title'], 'view': copy.deepcopy(value['view']),
-                'items': [{k: copy.deepcopy(i[k]) for k in ('item_id', 'title', 'value', 'status', 'evidence', 'pinned', 'archived')}
+                'items': [{k: copy.deepcopy(i[k]) for k in ITEM_EDIT_FIELDS if k in i}
                           for i in value['items']]}
 
     def apply_edit(self, document, request_id=None):
@@ -193,7 +197,7 @@ class CooperativeState:
             value['view'] = copy.deepcopy(document['view'])
             for edited in document['items']:
                 item = self._item(value, edited['item_id'])
-                if any(item[k] != v for k, v in edited.items()):
+                if any(item.get(k) != v for k, v in edited.items()):
                     item.update(copy.deepcopy(edited))
                     self._stamp(item, value, HUMAN, rid)
         return self._control(document['task_id'], document['expected_revision'], 'human_edit',

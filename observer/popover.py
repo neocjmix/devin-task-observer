@@ -2,6 +2,7 @@
 import argparse
 import copy
 import json
+import queue
 from pathlib import Path
 import signal
 import threading
@@ -13,6 +14,7 @@ from .menu import DEFAULT_ROOT
 from .runtime import CollectorRuntime, collector_status, service_running
 from .state_observations import observations
 from .ui_projection import project
+from .ui_actions import response
 
 ASSETS = Path(__file__).with_name('ui_v2')
 
@@ -59,11 +61,53 @@ class ProjectionController:
         self.runtime, self.fixture, self.interval = runtime, fixture, interval
         self._stop, self._wake, self._guard = threading.Event(), threading.Event(), threading.Lock()
         self._value, self._thread = None, None
+        self._actions, self._results = queue.Queue(maxsize=32), queue.Queue()
+        self._inflight = 0
 
     def collect(self):
         if self.fixture is not None:
-            return project(**json.loads(Path(self.fixture).read_text()))
-        return acquire(self.root, self.config, self.config_path, self.runtime)
+            value = project(**json.loads(Path(self.fixture).read_text()))
+        else:
+            value = acquire(self.root, self.config, self.config_path, self.runtime)
+        value['read_only'] = self.fixture is not None
+        return value
+
+    def submit(self, body):
+        try:
+            if not isinstance(body, dict):
+                raise ValueError('invalid UI request')
+            pending, nodes = [(body, 0)], 0
+            while pending:
+                value, depth = pending.pop()
+                nodes += 1
+                if depth > 32 or nodes > 4096:
+                    raise ValueError('UI request nesting exceeds limit')
+                children = value.values() if isinstance(value, dict) else value if isinstance(value, list) else ()
+                pending.extend((child, depth + 1) for child in children)
+            encoded = json.dumps(body, ensure_ascii=False, allow_nan=False)
+            if len(encoded.encode()) > 65536:
+                raise ValueError('oversized UI request')
+            canonical = json.loads(encoded)
+        except (ValueError, TypeError, RecursionError):
+            return {'request_id': body.get('request_id') if isinstance(body, dict) else None,
+                    'ok': False, 'error': {'code': 'invalid_action', 'message': '잘못된 요청입니다.'}}
+        with self._guard:
+            if self._inflight >= 32:
+                return {'request_id': body.get('request_id'), 'ok': False,
+                        'error': {'code': 'busy', 'message': '처리 중입니다. 잠시 후 다시 시도하세요.'}}
+            self._inflight += 1
+            self._actions.put_nowait(canonical)
+        self._wake.set()
+
+    def results(self):
+        rows = []
+        while True:
+            try:
+                rows.append(self._results.get_nowait())
+                with self._guard:
+                    self._inflight -= 1
+            except queue.Empty:
+                return rows
 
     def start(self):
         self._thread = threading.Thread(target=self._poll, name='observer-popover-state', daemon=True)
@@ -72,6 +116,8 @@ class ProjectionController:
     def _poll(self):
         while not self._stop.is_set():
             self._wake.clear()
+            while not self._actions.empty() and not self._stop.is_set():
+                self._results.put(response(self.root, self._actions.get_nowait(), read_only=self.fixture is not None))
             try:
                 value = self.collect()
             except (ValueError, OSError, StateError, KeyError, TypeError) as error:
@@ -135,8 +181,13 @@ def run_native(controller, *, show=False, probe=None):
             if request_url is None or request_url.absoluteString() != asset_url.absoluteString():
                 return
             try:
-                body = dict(message.body())
-            except (TypeError, ValueError):
+                raw = message.body()
+                if not isinstance(raw, str) or len(raw.encode()) > 65536:
+                    return
+                body = json.loads(raw)
+                if not isinstance(body, dict):
+                    return
+            except (TypeError, ValueError, RecursionError):
                 return
             action = body.get('action')
             if action == 'ready':
@@ -147,6 +198,10 @@ def run_native(controller, *, show=False, probe=None):
                 self.popover.performClose_(None)
             elif action == 'quit':
                 stopped.set()
+            elif isinstance(body.get('request_id'), str):
+                rejected = controller.submit(body)
+                if rejected:
+                    self.web.evaluateJavaScript_completionHandler_('window.Observer.actionResult(' + json.dumps(rejected) + ')', None)
 
         def webView_decidePolicyForNavigationAction_preferences_decisionHandler_(self, web, action, preferences, decide):
             url = action.request().URL()
@@ -165,6 +220,8 @@ def run_native(controller, *, show=False, probe=None):
             value = controller.latest()
             if not self.ready or value is None:
                 return
+            for result in controller.results():
+                self.web.evaluateJavaScript_completionHandler_('window.Observer.actionResult(' + json.dumps(wire_value(result), ensure_ascii=True) + ')', None)
             if value != self.previous:
                 self.previous = value
                 health = value['health']

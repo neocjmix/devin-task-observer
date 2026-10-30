@@ -62,6 +62,7 @@ Example for a synthetic task/session, after reading task revision 3:
       "title": "Interface compatibility",
       "value": "Tests fail after the interface change; update the implementation and rerun them.",
       "status": "blocked",
+      "role": "blocker",
       "evidence": [{"session_id": "session-A", "kind": "local_artifact", "reference": "test-output/run-001"}]
     }]
   }
@@ -74,6 +75,19 @@ Example for a synthetic task/session, after reading task revision 3:
 ```
 
 Use actual identifiers/references in real reports. `define` requires title/value/status/evidence; `update` uses an existing ID and only changed fields. `archive` accepts just `op` and `item_id`, stopping tracking while retaining history. Reuse IDs after rewording; do not manufacture new IDs merely to bypass a conflict or a pin. No change means no report.
+
+Optional `role` helps the UI place an item: `general`, `situation`, `intervention`,
+`next_action`, `resume`, `blocker`, `decision`, or `verification`. Choose it explicitly
+when useful; free-form items remain supported and no set of roles is mandatory.
+Use `intervention` with `attention_required: true` only for an actual pending action
+or decision requested of the user. To clear that request, update
+`attention_required: false`; a `completed` status alone does not clear it. The UI
+does not infer intervention from a blocker, title or free-form status. An absent
+role displays as general and an absent attention flag does not request attention.
+Role and attention updates use the same revision, attribution and pin protection
+as values. Omitted optional fields preserve the existing value; to reset a role,
+send `role: "general"` explicitly. A `resume` value is information, not authority
+to activate or control a work session.
 
 Evidence may refer only to sessions linked to the target task. Include relevant references you actually have; do not invent evidence. Replacing an evidence list replaces its current references, so retain the earlier references that still support the new value. Stored claims remain `reported`; schema-valid references do not prove source existence or actual completion.
 

@@ -382,6 +382,32 @@ class FileStore:
                 history = [state for state in history if before and state["revision"] <= before["revision"]]
             return history
 
+    def history_page(self, task_id, limit=20, before_revision=None, max_bytes=1048576):
+        """Bound deserialization under the shared lock; keep exact revision cursors."""
+        _id(task_id)
+        if type(limit) is not int or not 1 <= limit <= 20:
+            raise StateError('validation_error', 'history limit must be 1 to 20')
+        if before_revision is not None and (type(before_revision) is not int or before_revision < 1):
+            raise StateError('validation_error', 'invalid history cursor')
+        with self._locked():
+            blocked = self._recover()
+            paths = list(reversed(self._history_paths(task_id)))
+            if task_id in blocked:
+                before = blocked[task_id]['before']
+                paths = [path for path in paths if before and int(path.stem) <= before['revision']]
+            paths = [path for path in paths if before_revision is None or int(path.stem) < before_revision]
+            entries, size = [], 0
+            for path in paths[:limit]:
+                row = self._history_state(task_id, path)
+                size += len(json.dumps(row, ensure_ascii=True).encode())
+                if size > max_bytes:
+                    if not entries:
+                        raise StateError('history_entry_too_large', '이 기록은 화면 이력 표시 크기를 초과합니다. 로컬 이력 파일에서 확인하세요.')
+                    break
+                entries.append(row)
+            return {'entries': entries, 'has_more': len(paths) > len(entries),
+                    'before_revision': entries[-1]['revision'] if entries else None}
+
     def recover(self, task_id, expected_digest):
         """Explicitly back up a raw edit and restore the last committed state.
 

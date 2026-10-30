@@ -19,7 +19,7 @@ CAPABILITIES = {
     'task_lifecycle': False,
     'task_observation_toggle': False,
     'task_read_cursor': False,
-    'typed_item_roles': False,
+    'typed_item_roles': True,
     'registered_resources': False,
     'session_tokens': False,
     'session_locator': False,

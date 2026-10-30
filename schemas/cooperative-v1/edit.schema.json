@@ -77,6 +77,21 @@
           },
           "archived": {
             "type": "boolean"
+          },
+          "role": {
+            "enum": [
+              "general",
+              "situation",
+              "intervention",
+              "next_action",
+              "resume",
+              "blocker",
+              "decision",
+              "verification"
+            ]
+          },
+          "attention_required": {
+            "type": "boolean"
           }
         },
         "required": [

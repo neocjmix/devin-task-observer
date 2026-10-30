@@ -71,7 +71,11 @@ class ProjectionTests(unittest.TestCase):
     def test_does_not_infer_lifecycle_intervention_unread_or_tokens(self):
         self.assertTrue(self.value['items']['task-auth']['archived-plan']['archived'])
         self.assertIn('completed', {i['status'] for i in self.value['items']['task-auth'].values()})
-        self.assertTrue(all(flag is False for flag in self.value['capabilities'].values()))
+        self.assertTrue(self.value['capabilities']['typed_item_roles'])
+        self.assertTrue(all(flag is False for name, flag in self.value['capabilities'].items()
+                            if name != 'typed_item_roles'))
+        self.assertTrue(all('role' not in item and 'attention_required' not in item
+                            for items in self.value['items'].values() for item in items.values()))
         for task in self.value['tasks'].values():
             for field in ('lifecycle', 'observation_enabled', 'unread_count', 'intervention', 'next_action'):
                 self.assertNotIn(field, task)

@@ -35,4 +35,140 @@ assert.equal(ui.collectionHealth({health: {runtime: {running: false}}, tasks: {}
 assert.equal(ui.collectionHealth({health: {}, tasks: {}}).label, '수집 기록 없음');
 const code = fs.readFileSync(path.join(__dirname, '../observer/ui_v2/app.js'), 'utf8');
 assert.ok(!/\.innerHTML\s*=|eval\(|fetch\(/.test(code));
-console.log('UI V2 frontend helpers: 18 assertions passed');
+assert.deepEqual(ui.roleGroups(projection, 'a'), []);
+assert.equal(ui.taskRows(projection)[0].attention, false);
+projection.items.a.old.role = 'intervention';
+assert.equal(ui.taskRows(projection)[0].attention, false);
+projection.items.a.old.attention_required = true;
+assert.equal(ui.taskRows(projection)[0].summary, '블로커 · older');
+assert.equal(ui.filterRows(ui.taskRows(projection), '', 'attention').length, 1);
+assert.equal(ui.roleGroups(projection, 'a')[0].role, 'intervention');
+const historyOld = {revision: 1, title: 'T', items: [{item_id: 'x', title: 'Value', value: 'old', pinned: true}], notes: []};
+const historyNew = {revision: 2, title: 'T', items: [{item_id: 'x', title: 'Value', value: 'new', pinned: true}], notes: [{note_id: 'n', text: 'human note'}]};
+assert.deepEqual(ui.historyChanges(historyNew, historyOld).map(change => [change.field, change.before, change.after]), [['value', 'old', 'new'], ['추가', null, 'human note']]);
+assert.equal(ui.historyChanges(historyOld, null), null);
+
+// Cross the actual Python schema/core/projection boundary, not a hand-shaped UI contract.
+const {execFileSync} = require('node:child_process');
+const actual = JSON.parse(execFileSync(process.env.PYTHON || 'python3', ['-c', `
+import json, tempfile
+from observer.cooperative import CooperativeState
+from observer.ui_projection import project
+with tempfile.TemporaryDirectory() as root:
+    core = CooperativeState(root)
+    core.create('ui-test', 'Synthetic explicit intervention', 'session-a')
+    core.reporting('ui-test', 'session-a', True, 1)
+    core.report({'schema_version': 1, 'report_id': 'ui-test-report', 'session_id': 'session-a',
+      'expected_revisions': {'ui-test': 2}, 'changes': {'ui-test': [
+        {'op': 'define', 'item_id': 'ask', 'title': 'Policy decision', 'value': 'Choose A or B',
+         'status': 'waiting', 'evidence': [], 'role': 'intervention', 'attention_required': True},
+        {'op': 'define', 'item_id': 'blocker', 'title': 'Blocker', 'value': 'No user request',
+         'status': 'blocked', 'evidence': [], 'role': 'blocker'},
+        {'op': 'define', 'item_id': 'closed', 'title': 'Already answered', 'value': 'Keep as history',
+         'status': 'completed', 'evidence': [], 'role': 'intervention', 'attention_required': False}
+      ]}})
+    print(json.dumps(project(core.list())))
+`], {cwd: path.join(__dirname, '..'), encoding: 'utf8'}));
+assert.equal(ui.taskRows(actual)[0].attention, true);
+assert.equal(ui.filterRows(ui.taskRows(actual), '', 'attention').length, 1);
+assert.deepEqual(ui.roleGroups(actual, 'ui-test').map(group => [group.role, group.items.map(item => item.item_id)]), [['intervention', ['ask']]]);
+
+// A small DOM harness exercises refresh and asynchronous action ownership.
+const vm = require('node:vm');
+const ids = new Map();
+let document;
+class Element {
+  constructor(tag = 'div') { this.tagName = tag.toUpperCase(); this.children = []; this.dataset = {}; this.events = {}; this.attributes = {}; this.hidden = false; this.scrollTop = 0; this.value = ''; this._text = ''; this.parentNode = null; this.className = ''; this.classList = {toggle: (name, yes) => { const names = new Set(this.className.split(' ').filter(Boolean)); yes ? names.add(name) : names.delete(name); this.className = [...names].join(' '); }}; }
+  get firstChild() { return this.children[0] || null; }
+  set textContent(value) { this._text = value; this.children = []; }
+  get textContent() { return this._text + this.children.map(child => child.textContent).join(''); }
+  setAttribute(key, value) { this.attributes[key] = value; }
+  append(...nodes) { for (const item of nodes) { item.remove(); item.parentNode = this; this.children.push(item); } }
+  insertBefore(item, before) { item.remove(); item.parentNode = this; const index = before ? this.children.indexOf(before) : this.children.length; this.children.splice(index, 0, item); }
+  replaceChildren(...nodes) { this.children.forEach(child => { child.parentNode = null; }); this.children = []; this._text = ''; this.append(...nodes); }
+  remove() { if (this.parentNode) { const siblings = this.parentNode.children; siblings.splice(siblings.indexOf(this), 1); this.parentNode = null; } }
+  addEventListener(name, fn) { (this.events[name] ||= []).push(fn); }
+  fire(name, extra = {}) { for (const fn of this.events[name] || []) fn({target: this, preventDefault() {}, ...extra}); }
+  querySelector(selector) { return walk(this).find(child => selector.startsWith('.') ? child.className.split(' ').includes(selector.slice(1)) : child.tagName === selector.toUpperCase()) || null; }
+  focus() { document.activeElement = this; }
+}
+function walk(element) { return element.children.flatMap(child => [child, ...walk(child)]); }
+const html = fs.readFileSync(path.join(__dirname, '../observer/ui_v2/index.html'), 'utf8');
+for (const match of html.matchAll(/id="([^"]+)"/g)) ids.set(match[1], new Element());
+document = {readyState: 'complete', activeElement: null, getElementById: id => ids.get(id), createElement: tag => new Element(tag), addEventListener() {}};
+const sent = [];
+const window = {document, webkit: {messageHandlers: {observer: {postMessage: message => { assert.equal(typeof message, 'string'); sent.push(JSON.parse(message)); }}}}};
+vm.runInNewContext(code, {window, Date, Map, Set, BigInt, JSON, Object, String, Boolean, Number, Array});
+const runtime = JSON.parse(JSON.stringify(projection));
+runtime.capabilities = {typed_item_roles: true}; runtime.contributions = {a: {s: {reporting: true, last_report_at: '2026-10-31T00:00:00Z'}}, b: {}}; runtime.resource_candidates = {};
+runtime.sessions.s.session_id = 's'; runtime.sessions.s.task_ids = ['a']; runtime.sessions.s.activity = {last_seen: '2026-10-31T01:00:00Z'};
+for (const task of Object.values(runtime.tasks)) { task.session_ids = task.task_id === 'a' ? ['s'] : []; task.displayed_revision = 2; task.resource_candidate_ids = []; task.metadata.notes = []; task.metadata.view = {markdown: ''}; }
+assert.equal(window.Observer.receive(runtime), true);
+assert.equal(sent[0].action, 'ready');
+ids.get('task-list').children[0].fire('click');
+let detail = ids.get('detail-body');
+const draft = walk(detail).find(element => element.tagName === 'TEXTAREA');
+draft.value = 'unsaved note'; draft.fire('input'); draft.focus();
+const disclosure = walk(detail).find(element => element.className === 'item-details'); disclosure.open = true;
+detail.scrollTop = 70;
+runtime.tasks.a.displayed_revision = 3;
+runtime.items.a.latest.value = 'updated while typing';
+window.Observer.receive(runtime);
+assert.equal(walk(detail).find(element => element.tagName === 'TEXTAREA'), draft);
+assert.equal(draft.value, 'unsaved note');
+assert.equal(document.activeElement, draft);
+assert.equal(disclosure.open, true);
+assert.equal(detail.scrollTop, 70);
+const form = walk(detail).find(element => element.tagName === 'FORM'); form.fire('submit');
+const noteRequest = sent.at(-1);
+assert.equal(noteRequest.action, 'note');
+assert.equal(noteRequest.expected_revision, 2);
+draft.value = 'edited after request'; draft.fire('input');
+ids.get('back').fire('click');
+ids.get('task-list').children.find(card => card.dataset.taskId === 'b').fire('click');
+assert.equal(window.Observer.actionResult({request_id: noteRequest.request_id, ok: true, result: {}}), true);
+assert.equal(ids.get('detail-title').textContent, '같은 제목');
+assert.equal(draft.value, 'edited after request');
+assert.equal(sent.at(-1).action, 'refresh');
+assert.equal(window.Observer.actionResult({request_id: noteRequest.request_id, ok: true}), false);
+ids.get('back').fire('click');
+ids.get('task-list').children.find(card => card.dataset.taskId === 'a').fire('click');
+assert.equal(walk(detail).find(element => element.tagName === 'TEXTAREA'), draft);
+assert.equal(detail.scrollTop, 70);
+form.fire('submit'); const conflictRequest = sent.at(-1);
+window.Observer.actionResult({request_id: conflictRequest.request_id, ok: false, error: {code: 'revision_conflict'}});
+assert.equal(draft.value, 'edited after request');
+form.fire('submit');
+assert.equal(sent.at(-1).expected_revision, 3);
+const historyEntry = revision => ({revision, title: 'T', updated_at: '2026-10-31T00:00:00Z', updated_by: {kind: 'human'}, items: [], notes: []});
+const historyLoad = walk(detail).find(element => element.tagName === 'BUTTON' && element.textContent === '이력 불러오기');
+historyLoad.fire('click');
+assert.equal(sent.at(-1).action, 'history');
+window.Observer.actionResult({request_id: sent.at(-1).request_id, ok: true, result: {entries: [historyEntry(3), historyEntry(2)], has_more: true, before_revision: 2}});
+const latestHistory = walk(detail).find(element => element.tagName === 'BUTTON' && element.textContent === '최신 이력');
+assert.equal(latestHistory.hidden, false);
+walk(detail).find(element => element.dataset.revision === '3').open = true;
+latestHistory.fire('click');
+assert.equal(sent.at(-1).before_revision, undefined);
+window.Observer.actionResult({request_id: sent.at(-1).request_id, ok: true, result: {entries: [historyEntry(5), historyEntry(4), historyEntry(3)], has_more: true, before_revision: 3}});
+assert.equal(walk(detail).find(element => element.dataset.revision === '3').open, true);
+assert.equal(detail.scrollTop, 70);
+historyLoad.fire('click');
+assert.equal(sent.at(-1).before_revision, 2);
+window.Observer.actionResult({request_id: sent.at(-1).request_id, ok: true, result: {entries: [historyEntry(1)], has_more: false, before_revision: 1}});
+assert.equal(historyLoad.hidden, true);
+assert.equal(latestHistory.hidden, false);
+latestHistory.fire('click');
+window.Observer.actionResult({request_id: sent.at(-1).request_id, ok: true, result: {entries: [historyEntry(7)], has_more: true, before_revision: 7}});
+assert.equal(historyLoad.hidden, false);
+historyLoad.fire('click');
+assert.equal(sent.at(-1).before_revision, 7);
+window.Observer.actionResult({request_id: sent.at(-1).request_id, ok: true, result: {entries: [historyEntry(6), historyEntry(5)], has_more: true, before_revision: 5}});
+assert.equal(historyLoad.hidden, true);
+assert.equal(latestHistory.hidden, false);
+assert.equal(ui.historyChanges(historyEntry(7), historyEntry(5)), null);
+runtime.read_only = true; window.Observer.receive(runtime);
+assert.equal(draft.disabled, true);
+assert.equal(window.Observer.receive({projection_version: 99}), false);
+assert.equal(ids.get('message').hidden, false);
+console.log('UI V2 frontend helpers and DOM refresh/action regression checks passed');

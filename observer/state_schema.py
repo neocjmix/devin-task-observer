@@ -32,6 +32,15 @@ ITEM = obj({'item_id': ID, 'title': {'type': 'string', 'minLength': 1, 'maxLengt
             'archived': {'type': 'boolean'}, 'created_by': ACTOR, 'updated_by': ACTOR,
             'item_revision': REV, 'commit_sequence': REV, 'updated_at': TEXT,
             'report_id': ID, 'verification': {'enum': ['reported', 'legacy_import']}})
+# Optional presentation intent supplied explicitly by a reporting session or human.
+# Keep these out of obj()'s default required list: existing v1 records are valid
+# without them, and reads must not rewrite old records to manufacture metadata.
+ITEM_PRESENTATION = {
+    'role': {'enum': ['general', 'situation', 'intervention', 'next_action',
+                      'resume', 'blocker', 'decision', 'verification']},
+    'attention_required': {'type': 'boolean'},
+}
+ITEM['properties'].update(ITEM_PRESENTATION)
 TASK = obj({'schema_version': {'const': 1}, 'task_id': ID, 'title': {'type': 'string', 'minLength': 1, 'maxLength': 300},
             'revision': REV, 'updated_at': TEXT, 'updated_by': ACTOR,
             'contributions': array(obj({'session_id': SID, 'reporting': {'type': 'boolean'},
@@ -56,6 +65,8 @@ CHANGE = {'anyOf': [
     {**obj({'op': {'const': 'update'}, **CHANGE_FIELDS}, ['op', 'item_id']), 'minProperties': 3},
     obj({'op': {'const': 'archive'}, 'item_id': ID}),
 ]}
+for operation in CHANGE['anyOf'][:2]:
+    operation['properties'].update(ITEM_PRESENTATION)
 REVISIONS = {'type': 'object', 'minProperties': 1, 'maxProperties': 20,
              'propertyNames': ID, 'additionalProperties': REV}
 REPORT = obj({'schema_version': {'const': 1}, 'report_id': ID,
@@ -63,6 +74,7 @@ REPORT = obj({'schema_version': {'const': 1}, 'report_id': ID,
               'changes': {'type': 'object', 'minProperties': 1, 'maxProperties': 20,
                           'propertyNames': ID, 'additionalProperties': array(CHANGE, 100)}})
 EDIT_ITEM = obj({k: ITEM['properties'][k] for k in ('item_id', 'title', 'value', 'status', 'evidence', 'pinned', 'archived')})
+EDIT_ITEM['properties'].update(ITEM_PRESENTATION)
 EDIT = obj({'schema_version': {'const': 1}, 'task_id': ID, 'expected_revision': REV,
             'title': TASK['properties']['title'], 'items': array(EDIT_ITEM),
             'view': TASK['properties']['view']})

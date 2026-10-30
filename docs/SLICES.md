@@ -59,3 +59,5 @@ M3-S01에서 새 태스크 상태는 파일을 원본으로 삼는다. 기존 SQ
 - 새 슬라이스의 시작 테스트·최종 테스트 결과는 [M3-S01](slices/M3-S01.md)에 기록한다. 실제 모델 테스트의 skip과 합성 실행을 구분한다.
 
 | [UI-V2-S1](slices/UI-V2-S1.md) | Python + WKWebView 팝오버·홈·검색·건강 상태 | 관련 Python 40 통과, JS 18 assertions, 실제 Mac 표시·검색·복귀 확인 |
+
+| [UI-V2-S2](slices/UI-V2-S2.md) | 태스크 상세·역할·메모·고정·이력 | 관련 Python 59 통과, JS 경계·DOM 회귀 통과, 실제 Mac 메모 저장·이력 확인 |

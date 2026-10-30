@@ -81,6 +81,20 @@ class PopoverTests(unittest.TestCase):
                 controller.stop()
             self.assertFalse(controller._thread.is_alive())
 
+    def test_total_inflight_is_bounded_before_worker_and_deep_input_is_rejected(self):
+        controller = ProjectionController(fixture='tests/fixtures/ui_v2/s0.json')
+        body = {'action': 'note', 'request_id': 'bounded'}
+        for _ in range(32):
+            self.assertIsNone(controller.submit(body))
+        for _ in range(1000):
+            self.assertEqual(controller.submit(body)['error']['code'], 'busy')
+        self.assertEqual(controller._actions.qsize(), 32)
+        self.assertEqual(controller._results.qsize(), 0)
+        deep = []
+        for _ in range(1500):
+            deep = [deep]
+        self.assertEqual(controller.submit(dict(body, deep=deep))['error']['code'], 'invalid_action')
+
 
 if __name__ == '__main__':
     unittest.main()

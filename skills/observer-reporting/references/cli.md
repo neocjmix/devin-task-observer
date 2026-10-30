@@ -48,11 +48,22 @@ Each report has `schema_version: 1`, a unique `report_id`, this `session_id`,
 `expected_revisions` mapping every task read for the judgment to its revision, and
 `changes` mapping changed task IDs to operation arrays.
 
-- `define`: `op`, new stable `item_id`, `title`, JSON `value`, `status`, `evidence`.
-- `update`: `op`, existing `item_id`, and changed fields among `title`, `value`, `status`, `evidence`.
+- `define`: `op`, new stable `item_id`, `title`, JSON `value`, `status`, `evidence`; optional `role` and `attention_required`.
+- `update`: `op`, existing `item_id`, and changed fields among `title`, `value`, `status`, `evidence`, `role`, `attention_required`.
 - `archive`: `op` and existing `item_id`. Retains value/history but stops tracking.
 - Evidence: `{ "session_id": "linked-session", "kind": "local_artifact", "reference": "actual-reference" }`.
   Kinds are `session_event`, `local_artifact`, or `report`. Do not invent references.
+
+`role` is one of `general`, `situation`, `intervention`, `next_action`, `resume`,
+`blocker`, `decision`, `verification`. It is optional: existing v1 records remain
+valid and are not rewritten. `attention_required` is an optional boolean. The UI
+shows a user intervention only for a non-archived `intervention` item with an
+explicit true flag; it never derives this from status or title. Clearing the flag
+requires an explicit false update. Omitting either field preserves its current
+value. These fields are protected by pins and the same task revision check as
+other item fields. Safe human edit exports include them when present; an older
+edit document that omits them preserves them. New fields require an updated
+Observer CLI; an older binary may reject the extended v1 record.
 
 Task/item/report IDs use 1–80 letters, numbers, hyphens or underscores and start
 with a letter or number. Use UUIDs for report IDs. Session IDs come from the hook,

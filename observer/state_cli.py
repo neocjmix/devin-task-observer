@@ -189,8 +189,19 @@ def main(argv=None):
         print(json.dumps({'ok': True, **result}, ensure_ascii=False, allow_nan=False))
         return 0 if result.get('valid', True) else 2
     except StateError as error:
+        details = dict(error.details)
+        if error.code == 'revision_conflict' and isinstance(details.get('current'), dict):
+            # Healthy conflicts already contain the full current state. Do not
+            # spend the working agent's context on an identical last_good copy.
+            def compact(row):
+                if isinstance(row, dict) and row.get('health') == 'ok':
+                    return {key: value for key, value in row.items() if key != 'last_good'}
+                return row
+            current = details['current']
+            details['current'] = (compact(current) if 'task_id' in current else
+                                  {key: compact(row) for key, row in current.items()})
         print(json.dumps({'ok': False, 'error': {'code': error.code, 'message': str(error),
-                                               'details': error.details}}, ensure_ascii=False))
+                                               'details': details}}, ensure_ascii=False))
         return 2
     except (ValueError, OSError, RecursionError) as error:
         code = 'io_error' if isinstance(error, OSError) else 'validation_error'

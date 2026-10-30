@@ -22,7 +22,7 @@ def array(items, limit=1000):
     return {'type': 'array', 'items': items, 'maxItems': limit}
 
 
-ACTOR = obj({'kind': {'enum': ['human', 'session']},
+ACTOR = obj({'kind': {'enum': ['human', 'session', 'legacy']},
              'session_id': {'anyOf': [SID, {'type': 'null'}]}})
 EVIDENCE = obj({'session_id': SID, 'reference': {'type': 'string', 'minLength': 1, 'maxLength': 2000},
                 'kind': {'enum': ['session_event', 'local_artifact', 'report']}})
@@ -31,13 +31,24 @@ ITEM = obj({'item_id': ID, 'title': {'type': 'string', 'minLength': 1, 'maxLengt
             'evidence': array(EVIDENCE, 100), 'pinned': {'type': 'boolean'},
             'archived': {'type': 'boolean'}, 'created_by': ACTOR, 'updated_by': ACTOR,
             'item_revision': REV, 'commit_sequence': REV, 'updated_at': TEXT,
-            'report_id': ID, 'verification': {'const': 'reported'}})
+            'report_id': ID, 'verification': {'enum': ['reported', 'legacy_import']}})
 TASK = obj({'schema_version': {'const': 1}, 'task_id': ID, 'title': {'type': 'string', 'minLength': 1, 'maxLength': 300},
             'revision': REV, 'updated_at': TEXT, 'updated_by': ACTOR,
             'contributions': array(obj({'session_id': SID, 'reporting': {'type': 'boolean'},
                 'linked_at': TEXT, 'last_report_at': {'anyOf': [TEXT, {'type': 'null'}]}}), 100),
             'items': array(ITEM), 'notes': array(obj({'note_id': ID, 'text': TEXT, 'created_at': TEXT})),
             'view': obj({'markdown': TEXT})})
+# Imported source facts remain explicit snapshots; arbitrary original row data lives
+# in checksummed, immutable archive files rather than being guessed into new fields.
+LEGACY = obj({'migration_id': ID, 'source_task_id': ID, 'source_revision': REV,
+              'description': TEXT, 'lifecycle': TEXT, 'created_at': {'type': 'integer'},
+              'archive_ref': TEXT, 'archive_sha256': {'type': 'string', 'pattern': r'^[a-f0-9]{64}$'},
+              'view': {'anyOf': [{'type': 'object'}, {'type': 'null'}]},
+              'review_cursors': array({'type': 'object'}),
+              'resources': array({'type': 'object'}),
+              'archived_contributions': array({'type': 'object'})})
+TASK['properties']['legacy'] = LEGACY
+
 CHANGE_FIELDS = {'item_id': ID, 'title': ITEM['properties']['title'], 'value': {},
                  'status': ITEM['properties']['status'], 'evidence': array(EVIDENCE, 100)}
 CHANGE = {'anyOf': [
@@ -56,7 +67,7 @@ EDIT = obj({'schema_version': {'const': 1}, 'task_id': ID, 'expected_revision': 
             'title': TASK['properties']['title'], 'items': array(EDIT_ITEM),
             'view': TASK['properties']['view']})
 CONTEXT = obj({'schema_version': {'const': 1}, 'session_id': SID,
-               'identity_source': {'const': 'explicit_registration'}})
+               'identity_source': {'enum': ['explicit_registration', 'devin_hook']}})
 SCHEMAS = {'task': TASK, 'report': REPORT, 'edit': EDIT, 'context': CONTEXT}
 MAX_BYTES = 2 * 1024 * 1024
 
@@ -143,8 +154,8 @@ def validate(value, kind):
                 if evidence['session_id'] not in sessions:
                     raise ValueError('evidence refers to an unlinked session')
         for actor in [value['updated_by']] + [i[k] for i in value['items'] for k in ('created_by', 'updated_by')]:
-            if actor['kind'] == 'human' and actor['session_id'] is not None:
-                raise ValueError('human actor cannot claim a session ID')
+            if actor['kind'] in ('human', 'legacy') and actor['session_id'] is not None:
+                raise ValueError('human/legacy actor cannot claim a session ID')
             if actor['kind'] == 'session' and actor['session_id'] not in sessions:
                 raise ValueError('actor refers to an unlinked session')
     return value

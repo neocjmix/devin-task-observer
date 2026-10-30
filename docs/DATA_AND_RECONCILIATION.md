@@ -1,8 +1,8 @@
 # Data and Reconciliation Specification
 
-## M3-S01 storage and reporting contract (2026-10-30)
+## M3 storage and reporting contract (2026-10-30)
 
-[M3-S01](slices/M3-S01.md)은 [설계 변경안](DESIGN_CHANGE_PROPOSAL_2026-10-30_KO.md)의 파일 원본·직접 편집·버전 스키마·범위별 오류 격리 요구를 새 태스크에 구현한다. 보고를 켠 작업 에이전트가 CLI로 의미 변경을 전달하고 Core가 검증한다. 파일의 낙관적 갱신·짧은 커밋 락·복구·이력 보존을 별도로 검증하며, 기존 SQLite의 원자성 증거로 대신하지 않는다. 기존 수집·태스크·View 데이터의 자동 전환은 이번 범위가 아니다. 현재 결과는 [슬라이스 기록](slices/M3-S01.md)을 따른다.
+새 보고 경로는 파일 원본·조건부 커밋·명시적 고정값 보호를 따른다. [S01](slices/M3-S01.md)은 저장/CLI, [S02](slices/M3-S02.md)는 실제 세션 전달/메뉴, [S03](slices/M3-S03.md)은 기존 자료의 명시적 이관이다. task 스키마의 선택적 legacy 영역은 가져온 View·리소스·커서 원형을 보존한다. 이관 당시 값은 legacy_import, 이후 세션이 보고한 항목은 reported다. hooks의 context/activity는 세션 ID·시각·이벤트만 저장하고 대화/압축 요약을 복제하지 않는다. 원본 관측과 보고 state revision은 분리한다.
 
 후속 확정된 [상태 트랜잭션 계약](STATE_TRANSACTION_CONTRACT_2026-10-30_KO.md)은 낙관적 읽기–판단–커밋, 세션별 항목 정의·업데이트 출처, 명시적 고정값 보호를 정한다. 미래 설계에서는 사람이 수정한 추적값도 고정하지 않았다면 후속 유효 보고로 갱신할 수 있고 메모·변경 이력은 항상 보존한다. 이 정책은 새 M3 경로에 적용한다. 아래 기존 M2의 인간 소유 전환·보호 규칙은 보존 중인 기존 런타임의 계약이다.
 

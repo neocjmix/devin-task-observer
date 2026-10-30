@@ -1,7 +1,7 @@
 # M3-S01 CLI·파일 계약
 
 이 문서는 현재 `observer/state_cli.py`, `cooperative.py`, `file_store.py`, `state_schema.py`의 구현 계약이다.
-완료 여부와 실제 테스트 결과는 [M3-S01](M3-S01.md)에 따로 기록한다.
+완료 여부와 당시 테스트 결과는 [M3-S01](M3-S01.md)에 따로 기록한다. 후속 스킬·훅·메뉴는 [M3-S02](M3-S02.md), 이관은 [M3-S03](M3-S03.md)에 있다.
 보고 스킬은 [observer-reporting](../../skills/observer-reporting/SKILL.md)이며 이 저장소에만 제공한다.
 스킬 설치·Desktop 자동 전달·훅 설정은 수행하지 않는다.
 
@@ -15,7 +15,7 @@
 `state` 다음의 `--root`가 **새 협조형 태스크 파일 저장소**를 선택한다. 기본 경로는
 `~/Library/Application Support/Devin Task Observer/state`다. 기존 서비스의 `--config`와
 SQLite `store`는 별개이며 자동으로 가져오지 않는다. 기존 DB 태스크 ID와 같은 문자열을
-새 태스크 ID로 쓰더라도 같은 태스크로 동기화하지 않는다. 기존 태스크·View의 이관은 후속 범위다.
+새 태스크 ID로 쓰더라도 같은 태스크로 동기화하지 않는다. S01 자체는 이관하지 않는다. 현재 명시적 이관 명령은 [M3-S03](M3-S03.md)을 따른다.
 
 기존 `observerctl configure/run/status/autostart`는 기존 수집기·브라우저 런타임에 계속 적용된다.
 새 `state` 명령은 데몬이나 웹 서버 없이 동작하며 모델·네트워크를 호출하지 않는다.

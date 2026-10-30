@@ -100,6 +100,8 @@ class CooperativeState:
     def _stamp(item, task, actor, report_id):
         item.update(updated_by=copy.deepcopy(actor), item_revision=item['item_revision'] + 1,
                     commit_sequence=task['revision'], updated_at=task['updated_at'], report_id=report_id)
+        if actor['kind'] == 'session':
+            item['verification'] = 'reported'
 
     def report(self, request):
         checked(request, 'report')

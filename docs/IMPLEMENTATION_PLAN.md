@@ -1,8 +1,8 @@
 # Devin Task Observer — Implementation Plan
 
-## Current delivery — M3-S01 (2026-10-30)
+## Current delivery — M3 (2026-10-30)
 
-[슬라이스 목록](SLICES.md)과 [M3-S01](slices/M3-S01.md)이 현재 구현 범위다. 사용자가 구현·자율 검증을 승인했다. [설계 변경안](DESIGN_CHANGE_PROPOSAL_2026-10-30_KO.md)과 [상태 트랜잭션 계약](STATE_TRANSACTION_CONTRACT_2026-10-30_KO.md)을 기준으로 새 태스크의 파일 원본 상태와 협조형 보고 CLI를 먼저 완성한다. 결정론적 관측은 재사용하고 기존 SQLite 데이터는 보존한다. 메뉴 막대·실제 스킬 전달·기존 데이터 이관은 후속 범위다.
+[슬라이스 목록](SLICES.md)에 따라 S01 파일 상태·CLI, S02 실제 스킬·훅·메뉴 막대·수집기, S03 보존 이관·복원을 순서대로 구현한다. 사용자 승인 범위는 M3 전체이며 [설계 변경안](DESIGN_CHANGE_PROPOSAL_2026-10-30_KO.md)과 [트랜잭션 계약](STATE_TRANSACTION_CONTRACT_2026-10-30_KO.md)을 따른다. 범위별 실제 결과와 미검증 항목은 개별 슬라이스에 기록한다. 기존 SQLite 관측 체크포인트는 유지하며 새 태스크의 원본은 파일이다.
 
 **이 아래 P0~M2 본문은 기존 런타임의 역사적 계약과 검증 기록이다.** 아래 `normative`, `next`, `First task`는 당시 단계에만 적용되며 새 슬라이스의 착수 조건이나 우선순위가 아니다. 기존 별도 모델 경로를 확장하거나 자동 실행하는 지시로 사용하지 않는다.
 

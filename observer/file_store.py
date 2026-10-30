@@ -194,6 +194,8 @@ class FileStore:
                     if time.monotonic() >= deadline:
                         raise StateError("busy", "Another local state commit is busy; retry later") from exc
                     time.sleep(min(.02, max(0, deadline - time.monotonic())))
+            if self._read_bytes(self.root / '.retired.json') is not None:
+                raise StateError('retired_store', 'This migrated store was retired by rollback; use the restored legacy backup', {'root': str(self.root)})
             yield
         except OSError as exc:
             raise StateError("storage_io", "State file operation failed", {"reason": str(exc)}) from exc

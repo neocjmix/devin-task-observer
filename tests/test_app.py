@@ -38,6 +38,16 @@ class ApplicationTests(unittest.TestCase):
         self.assertTrue(definition['KeepAlive']);self.assertTrue(definition['RunAtLoad'])
         self.assertEqual(list(self.root.glob('*.plist')),[])
         self.assertEqual(Path(definition['StandardOutPath']).stat().st_mode&0o777,0o600)
+    def test_m3_autostart_targets_menu_or_collector_without_legacy_web(self):
+        save_config(self.config,self.value)
+        with patch('observer.app.menu_python',return_value='/synthetic/menu/python'):
+            menu=launch_agent(self.config, 'menu', self.root/'state')
+        self.assertEqual(menu['ProgramArguments'][0], '/synthetic/menu/python')
+        self.assertEqual(menu['ProgramArguments'][2], 'observer.menu')
+        self.assertEqual(menu['ProgramArguments'][-1], str(self.root/'state'))
+        collector=launch_agent(self.config, 'collector')
+        self.assertEqual(collector['ProgramArguments'][2], 'observer.runtime')
+
     def test_autostart_can_be_removed_even_when_configuration_is_missing(self):
         agent=self.root/'Library/LaunchAgents'/f'{LABEL}.plist';agent.parent.mkdir(parents=True);agent.write_text('synthetic fixture')
         with patch('observer.app.Path.home',return_value=self.root),patch('observer.app.sys.platform','darwin'),patch('observer.app.subprocess.run',return_value=SimpleNamespace(returncode=3)):

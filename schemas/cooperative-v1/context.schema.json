@@ -13,7 +13,10 @@
       "pattern": "^[^\\s/\\\\]+$"
     },
     "identity_source": {
-      "const": "explicit_registration"
+      "enum": [
+        "explicit_registration",
+        "devin_hook"
+      ]
     }
   },
   "required": [

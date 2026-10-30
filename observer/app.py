@@ -51,14 +51,49 @@ def save_config(path,value):
         if os.path.exists(name):os.unlink(name)
 
 
-def launch_agent(config_path):
+def launch_agent(config_path, mode='legacy-web', root=None):
     config_path=Path(config_path).absolute();value=load_config(config_path)
     logdir=Path(value['store']).parent/'logs';logdir.mkdir(parents=True,exist_ok=True)
     for name in ('service.log','service-error.log'):
         fd=os.open(logdir/name,os.O_WRONLY|os.O_CREAT,0o600);os.close(fd)
-    return {'Label':LABEL,'ProgramArguments':[sys.executable,'-m','observer.app','--config',str(config_path),'run'],
+    if mode == 'menu':
+        from .state_cli import DEFAULT_ROOT
+        python = menu_python()
+        arguments = [python, '-m', 'observer.menu', '--config', str(config_path), '--root', str(root or DEFAULT_ROOT)]
+    elif mode == 'collector':
+        arguments = [sys.executable, '-m', 'observer.runtime', '--config', str(config_path)]
+    else:
+        arguments = [sys.executable,'-m','observer.app','--config',str(config_path),'run']
+    return {'Label':LABEL,'ProgramArguments':arguments,
         'WorkingDirectory':str(Path(__file__).resolve().parent.parent),'RunAtLoad':True,'KeepAlive':True,'ThrottleInterval':10,
         'ProcessType':'Background','StandardOutPath':str(logdir/'service.log'),'StandardErrorPath':str(logdir/'service-error.log')}
+
+
+def menu_python():
+    """Use an explicitly installed optional Cocoa bridge; never install at startup."""
+    import importlib.util
+    if importlib.util.find_spec('rumps') is not None:
+        return sys.executable
+    python = Path.home()/'Library/Application Support/Devin Task Observer/menu-runtime/bin/python'
+    if not python.is_file():
+        raise ValueError('메뉴 막대 의존성이 없습니다. 저장소의 scripts/setup_menu.py 설치 진입점을 사용하세요.')
+    return str(python)
+
+
+def run_menu(argv):
+    if '--snapshot' in argv:
+        from .menu import main as menu_main
+        return menu_main(argv)
+    try:
+        python = menu_python()
+    except ValueError as error:
+        print(str(error), file=sys.stderr)
+        return 2
+    if python == sys.executable:
+        from .menu import main as menu_main
+        return menu_main(argv)
+    os.chdir(Path(__file__).resolve().parent.parent)
+    os.execv(python, [python, '-m', 'observer.menu', *argv])
 
 
 def status(value):
@@ -71,7 +106,7 @@ def status(value):
             except BlockingIOError:running=True
         finally:os.close(fd)
     except OSError:pass
-    result={'running':running,'dashboard':'http://127.0.0.1:'+str(value['port']),'last_success':None,'last_attempt':None,'last_error':'아직 수집 기록이 없습니다.'}
+    result={'running':running,'last_success':None,'last_attempt':None,'last_error':'아직 수집 기록이 없습니다.'}
     if store.is_file():
         db=sqlite3.connect(store.as_uri()+'?mode=ro',uri=True)
         try:
@@ -87,11 +122,29 @@ def main(argv=None):
     if argv and argv[0] == 'state':
         from .state_cli import main as state_main
         return state_main(argv[1:])
+    if argv and argv[0] in ('integration', 'migrate', 'menu', 'collect'):
+        if argv[0] == 'integration':
+            from .integration import main as command_main
+        elif argv[0] == 'migrate':
+            from .migration_cli import main as command_main
+        elif argv[0] == 'collect':
+            from .runtime import main as command_main
+        else:
+            command_main = run_menu
+        return command_main(argv[1:])
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--config',type=Path,default=DEFAULT_CONFIG)
     commands=p.add_subparsers(dest='command',required=True)
     state_command=commands.add_parser('state', help='파일 기반 태스크 조회·보고·검증; state --help')
     state_command.add_argument('state_args', nargs=argparse.REMAINDER)
+    menu_command = commands.add_parser('menu', help='M3: 브라우저 없이 메뉴 막대에서 관측')
+    menu_command.add_argument('--root', type=Path)
+    menu_command.add_argument('--snapshot', action='store_true')
+    collect_command = commands.add_parser('collect', help='M3: UI·모델 없이 지속 수집')
+    collect_command.add_argument('--once', action='store_true')
+    for name in ('integration', 'migrate'):
+        delegated = commands.add_parser(name)
+        delegated.add_argument('delegated_args', nargs=argparse.REMAINDER)
     configure=commands.add_parser('configure',help='개인 작업 공간 설정 저장')
     configure.add_argument('--workspace',type=Path,action='append',required=True)
     configure.add_argument('--source',type=Path,default=Path.home()/'.local/share/devin/cli/sessions.db')
@@ -106,10 +159,26 @@ def main(argv=None):
     commands.add_parser('status',help='마지막 수집 성공/실패 상태 확인')
     auto=commands.add_parser('autostart',help='명시적 선택: 개인 로그인 시 실행 등록 또는 해제')
     auto.add_argument('action',choices=('install','remove'))
+    auto.add_argument('--mode', choices=('menu', 'collector', 'legacy-web'), default='menu')
+    auto.add_argument('--root', type=Path)
     args=p.parse_args(argv)
     if args.command=='state':
         from .state_cli import main as state_main
         return state_main(args.state_args)
+    if args.command in ('integration', 'migrate'):
+        if args.command == 'integration':
+            from .integration import main as delegated_main
+        else:
+            from .migration_cli import main as delegated_main
+        return delegated_main(args.delegated_args)
+    if args.command == 'menu':
+        options = ['--config', str(args.config)]
+        if args.root: options += ['--root', str(args.root.expanduser().absolute())]
+        if args.snapshot: options += ['--snapshot']
+        return run_menu(options)
+    if args.command == 'collect':
+        from .runtime import main as runtime_main
+        return runtime_main(['--config', str(args.config)] + (['--once'] if args.once else []))
     try:
         if args.command=='configure':
             value={'version':1,'workspaces':sorted({str(w.expanduser().absolute()) for w in args.workspace}),'source':str(args.source.expanduser().absolute()),'store':str(args.store.expanduser().absolute()),'port':args.port}
@@ -117,7 +186,7 @@ def main(argv=None):
             if args.semantic_adapter!='off':
                 if not args.semantic_executable:raise ValueError('의미 분석에는 승인한 CLI 실행 파일 경로가 필요합니다.')
                 value['semantic']={'enabled':True,'environment':args.semantic_environment,'adapter':args.semantic_adapter,'executable':str(args.semantic_executable.expanduser().absolute()),'acp_approved':args.approve_acp}
-            save_config(args.config,value);print('개인 작업 공간 설정을 저장했습니다. observerctl run으로 실행할 수 있습니다.');return 0
+            save_config(args.config,value);print('개인 작업 공간 설정을 저장했습니다. observerctl menu 또는 collect로 실행할 수 있습니다.');return 0
         if args.command=='autostart' and args.action=='remove':
             if sys.platform!='darwin':raise ValueError('로그인 자동 실행은 macOS에서만 지원합니다.')
             target=f'gui/{os.getuid()}/'+LABEL
@@ -139,7 +208,7 @@ def main(argv=None):
         agent=Path.home()/'Library/LaunchAgents'/f'{LABEL}.plist'
         domain=f'gui/{os.getuid()}'
         if agent.exists():raise ValueError('자동 실행이 이미 등록되어 있습니다. 기존 등록을 확인하거나 remove 후 다시 등록하세요.')
-        definition=launch_agent(args.config);agent.parent.mkdir(parents=True,exist_ok=True)
+        definition=launch_agent(args.config, args.mode, args.root.expanduser().absolute() if args.root else None);agent.parent.mkdir(parents=True,exist_ok=True)
         fd=os.open(agent,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
         with os.fdopen(fd,'wb') as f:plistlib.dump(definition,f)
         result=subprocess.run(['launchctl','bootstrap',domain,str(agent)],capture_output=True)

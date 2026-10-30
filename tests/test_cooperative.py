@@ -86,6 +86,19 @@ class CooperativeStateTests(unittest.TestCase):
         self.assertIn("Implementation reported complete", history)
         self.assertIn("Human decision", history)
 
+    def test_new_session_report_replaces_legacy_verification_only_for_updated_item(self):
+        self.core.report(self.request([define(), define('other')]))
+        value=self.state()
+        for item in value['items']:
+            item['verification']='legacy_import'
+            item['updated_by']={'kind':'legacy','session_id':None}
+        expected = value['revision']
+        value['revision'] += 1
+        self.core.store.transact('synthetic-legacy', {'fixture':True}, {'task-t':expected}, lambda _: {'task-t':value})
+        self.core.report(self.request([{'op':'update','item_id':'progress','value':'Fresh result'}]))
+        self.assertEqual(self.item()['verification'],'reported')
+        self.assertEqual(self.item('other')['verification'],'legacy_import')
+
     def test_stale_report_returns_latest_session_and_preserves_winning_state(self):
         self.core.report(self.request([define()]))
         stale = self.request([{"op": "update", "item_id": "progress", "value": "Stale A claim"}])

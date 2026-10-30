@@ -97,6 +97,8 @@ class CooperativeCliTests(unittest.TestCase):
         error = self.submit(stale, ok=False)["error"]
         self.assertEqual(error["code"], "revision_conflict")
         self.assertIn("session-b", json.dumps(error["details"]))
+        self.assertNotIn("last_good", error["details"]["current"]["task-t"])
+        self.assertEqual(error["details"]["current"]["task-t"]["state"], winning)
         self.assertEqual(self.read(), winning)
         self.setup_task("task-u", ("session-a",))
         items = self.cli("list", "--session", "session-a")["tasks"]

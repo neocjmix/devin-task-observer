@@ -7,20 +7,29 @@ description: Use Devin Task Observer's local CLI to read linked tasks, define tr
 
 Report changes using the context already available in the working session. The Observer CLI does not call a model. Do not start a separate model, send transcripts, query another work session, or interrupt the user's work to obtain a report.
 
-This repository skill is a reference artifact. Automatic Devin Desktop discovery, hook delivery and session-ID injection are not installed or verified by this file. The exact commands and recovery details are in [M3-S01 CLI](../../docs/slices/M3-S01_CLI.md).
+Install this skill only in an explicitly selected workspace with `observerctl integration install`. The project hook supplies a session context path; the installed copy includes the exact CLI and state-root paths. The exact commands and recovery details are in [CLI reference](references/cli.md). Installing does not enable reporting or grant tool permissions by itself.
 
 ## Identify and read
 
-Use the existing `observerctl` from its checkout and an explicitly selected state root outside Devin's source directory. Use a real session ID supplied by the host or explicit registration; never infer one from a working directory/PID or invent a replacement. If no ID is available, leave reporting unregistered and continue the work.
+Use the installation binding and the exact context file supplied to this session by the Devin hook. Run `whoami` first and use the returned `session_id`. Never scan another session's context, infer identity from a working directory/PID, or invent a replacement. If the hook did not supply an ID, use an ID explicitly supplied by the host/operator and register it once; otherwise leave reporting unregistered and continue the work.
+
+When the user asks to start reporting, use this sequence (each write may change the revision):
+
+1. Run `whoami` on this hook context and take its `session_id`; list that session's linked tasks.
+2. Read the relevant task (`read --task ...`) and inspect `state.contributions` and `state.revision`. If no suitable task exists and the user requested a new task, `create --task ... --title ... --session ...` creates it with this session already linked and reporting OFF; read it afterward.
+3. If the relevant existing task does not yet include this session, run `link --task ... --session ... --expected-revision <state.revision from the read>`. **Reporting cannot be enabled before the session is linked.** Read the task again after linking.
+4. Run `reporting --task ... --session ... --enabled on --expected-revision <revision from the latest read>`. The `--expected-revision` argument is required for both `link` and `reporting`. Do not reuse the pre-link revision.
+5. Read once more before defining or updating tracking items. The report's `expected_revisions` must use this latest revision, not the one from before enabling.
+
+Do not select every task sharing the session. On a stop request, read the task and run `reporting --enabled off` with that current revision. On resumed work or after compaction, reread contributions and continue reporting only for those still ON; do not silently re-enable a stopped contribution.
 
 ```sh
-./observerctl state --root "$observer_root" session-register --session "$session_id" --out "$context_file"
 ./observerctl state --root "$observer_root" whoami --context "$context_file"
 ./observerctl state --root "$observer_root" list --session "$session_id"
 ./observerctl state --root "$observer_root" read --task "$task_id"
 ```
 
-Registration records a claimed identity; it does not authenticate the caller. `--context` must match the report's `session_id`. Reuse the existing context file: registration refuses to overwrite it.
+The hook already creates its context; do not run registration over it. Only when no hook context exists and the host/operator explicitly supplied the real session ID, use `session-register --session "$session_id" --out "$context_file"`. Registration or hook provenance records a supplied identity; it does not authenticate the caller. `--context` must match the report's `session_id`. Reuse the existing context file: registration refuses to overwrite it.
 
 Read the task title, contributions, current items, `updated_by`, revisions and reporting flag. Read existing items before defining another one. Reuse a matching stable `item_id`; a title match alone is not proof that two items mean the same thing. Explicitly link a relevant task when needed; do not report to every task sharing this session.
 
@@ -32,7 +41,7 @@ Reporting is enabled separately for each task/session contribution:
 ./observerctl state --root "$observer_root" reporting --task "$task_id" --session "$session_id" --enabled off --expected-revision 5
 ```
 
-The numbers above are illustrative. Read again after a control change before preparing a report. ON does not wake an idle agent or guarantee complete reporting; OFF preserves existing values/history. Continue ordinary work, reporting only meaningful changes in the tracked items.
+The numbers above are illustrative. Read again after a control change before preparing a report. ON does not wake an idle agent or guarantee complete reporting; OFF preserves existing values/history. Once enabled, continue ordinary work and proactively report meaningful changes without requiring the user to request another update. Read current state before reporting, and check the contribution is still ON. Suitable moments include verified test outcomes, changed blockers/decisions, or a completed work unit; no-change turns need no report. Hooks do not block stopping or generate reports for you.
 
 ## Read → judge → conditional report
 

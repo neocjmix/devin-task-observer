@@ -1,10 +1,30 @@
 # Devin Task Observer
 
-**현재 슬라이스: [M3-S01 — 협조형 보고 CLI와 파일 원본 상태](docs/slices/M3-S01.md), CLI·파일 상태 슬라이스 구현·검증 완료 (2026-10-30).** [슬라이스 목록](docs/SLICES.md)이 현재 범위와 문서 우선순위를 정합니다. 새 태스크의 보고 상태를 파일 원본으로 관리하고, 기존 작업 에이전트가 CLI로 보고하는 경로를 구현했습니다. 메뉴 막대 View·실제 스킬 전달·기존 데이터 이관은 후속 슬라이스입니다.
+**현재 경로: M3 — Cooperative Task Tracking.** 기본 관측은 데몬이 모델 없이 수행하고, 의미 변화는 작업 중인 Devin 세션이 스킬과 CLI로 보고합니다. 상태는 로컬 JSON과 이력 파일에 보존하며 macOS 메뉴 막대에서 조회합니다. [M3 실행 결과](docs/M3_PROGRESS.md), [슬라이스 목록](docs/SLICES.md), [스킬·메뉴 검증](docs/slices/M3-S02.md), [보존 이관](docs/slices/M3-S03.md)이 실제 지원 범위를 정합니다.
 
-설계 기준: [변경안](docs/DESIGN_CHANGE_PROPOSAL_2026-10-30_KO.md)과 [낙관적 트랜잭션·업데이트 세션·세션별 추적 정의·명시적 고정값 보호 계약](docs/STATE_TRANSACTION_CONTRACT_2026-10-30_KO.md). 고정하지 않은 추적값은 사람이 수정했어도 후속 유효 보고로 갱신할 수 있고 메모·변경 이력은 항상 보존합니다. 실제 검증 결과는 슬라이스 문서에 기록합니다. 현재 명령과 저장 경계는 [M3-S01 CLI·파일 계약](docs/slices/M3-S01_CLI.md), 에이전트 사용 지침은 [보고 스킬](skills/observer-reporting/SKILL.md)에 있습니다.
+설계 기준은 [변경안](docs/DESIGN_CHANGE_PROPOSAL_2026-10-30_KO.md)과 [낙관적 트랜잭션 계약](docs/STATE_TRANSACTION_CONTRACT_2026-10-30_KO.md)입니다. 최신 유효 보고를 사용하고 명시적 고정값·메모·이력을 보호합니다. 각 세션이 추적 항목을 정하며, 충돌의 의미적 조정도 세션이 맡습니다.
 
-아래는 보존 중인 **기존 P0~M2 SQLite·웹·수동 의미 분석 경로**의 사용 기록입니다. 새 파일 상태로 자동 이관하지 않으며 메뉴 막대 구현 완료를 뜻하지 않습니다.
+## M3 실행 경로
+
+```sh
+./observerctl configure --workspace /absolute/personal/workspace
+python3 scripts/setup_menu.py
+./observerctl integration install --workspace /absolute/personal/workspace --root /absolute/observer-state
+./observerctl state --root /absolute/observer-state create --task my-task --title '작업 제목'
+./observerctl menu --root /absolute/observer-state
+```
+
+선택한 Devin 작업 공간의 새 세션에서 `observer-reporting 스킬로 my-task 자동 보고를 시작해`라고 요청합니다. 세션은 훅의 ID를 확인하고 연결·보고 ON·항목 정의를 수행합니다. 이후 중요한 변화는 세션이 판단해 보고합니다. 보고 중지는 같은 스킬로 요청합니다. 스킬은 도구 승인을 우회하지 않습니다. 기본 권한 모드에서는 명령 실행 승인이 필요할 수 있습니다.
+
+메뉴는 상태·출처·마지막 보고·마지막 수집·오류를 보여주고 브라우저나 별도 모델을 실행하지 않습니다. `collect`는 메뉴 없는 수집기, `menu --snapshot`은 동일 화면 데이터의 JSON 진단입니다. 선택적 `.app` 설치와 로그인 자동 실행은 [메뉴 실행 문서](docs/slices/M3-S02_MENU.md)를 따릅니다. 일반 설치나 실행은 로그인 자동 실행을 등록하지 않습니다.
+
+파일 상태 CLI·스키마·편집·복구는 [M3-S01 CLI 계약](docs/slices/M3-S01_CLI.md), 에이전트 명령은 [스킬](skills/observer-reporting/SKILL.md)에 있습니다. 기존 SQLite 자료는 명시적 `migrate plan/apply/check/rollback`으로 새 전용 root에 보존 이관합니다. 기존 DB와 새 root를 동시에 태스크 원본으로 쓰지 않습니다. 이관 이후 새 보고가 있으면 자동 롤백을 거절합니다.
+
+핵심 한계: 보고 ON은 매 턴 보고·완전한 의미 정확성·유휴 세션 깨우기를 보장하지 않습니다. 원본 관측과 세션의 보고를 구분합니다. 개인 테스트만 수행하며 실제 업무 원문·인증정보는 커밋하지 않습니다. 상세 설명은 [한국어 문서](docs/PROJECT_EXPLAINED_KO.md)에 있습니다.
+
+## 보존 중인 P0~M2 경로
+
+아래는 **기존 SQLite·웹 대시보드·수동 의미 분석 경로**의 기록입니다. `run`은 호환성을 위해 기존 웹 서버를 실행합니다. M3의 기본 진입점은 `menu`이며 별도 모델 분석을 사용하지 않습니다.
 
 Private, local-first task observability for Devin Desktop. The observer reads the source without controlling Devin and stores task data separately. Collection and dashboard viewing make no LLM calls and send no telemetry.
 
@@ -43,7 +63,7 @@ The dashboard prints its local address (default `http://127.0.0.1:8765`). It sho
 Login auto-start is a **separate explicit opt-in**:
 
 ```sh
-./observerctl autostart install
+./observerctl autostart install --mode legacy-web
 ./observerctl autostart remove
 ```
 

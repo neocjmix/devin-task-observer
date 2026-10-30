@@ -16,6 +16,7 @@ from .state_observations import observations
 from .ui_projection import project
 from .ui_actions import response
 from .ui_native import finish
+from .session_usage import UsageCache
 
 ASSETS = Path(__file__).with_name('ui_v2')
 
@@ -31,14 +32,15 @@ def wire_value(value):
     return value
 
 
-def acquire(root, config, config_path, runtime=None):
+def acquire(root, config, config_path, runtime=None, usage_cache=None, force_usage=False):
     from .app import load_config
-    rows, activity, errors, facts = [], {}, [], None
+    rows, activity, errors, facts, usage = [], {}, [], None, None
     try:
         if load_config(config_path) != config:
             errors.append({'code': 'configuration_changed', 'message': '설정이 변경됐습니다. Observer를 재시작하세요.'})
         else:
             facts = observations(config_path)
+            usage = (usage_cache or UsageCache()).read(config, force=force_usage)
     except (ValueError, OSError) as error:
         errors.append({'code': 'configuration_error', 'message': str(error)})
     try:
@@ -52,7 +54,7 @@ def acquire(root, config, config_path, runtime=None):
     except (StateError, OSError, ValueError) as error:
         errors.append({'code': getattr(error, 'code', 'state_unavailable'), 'message': str(error)})
     run = runtime.snapshot() if runtime else {'running': service_running(config), 'collector': collector_status(config)}
-    return project(rows, observations=facts, session_activity=activity, runtime=run, state_errors=errors)
+    return project(rows, observations=facts, session_activity=activity, runtime=run, state_errors=errors, session_usage=usage)
 
 
 class ProjectionController:
@@ -64,12 +66,15 @@ class ProjectionController:
         self._value, self._thread = None, None
         self._actions, self._results = queue.Queue(maxsize=32), queue.Queue()
         self._inflight = 0
+        self._usage, self._force_usage = UsageCache(), False
 
     def collect(self):
         if self.fixture is not None:
             value = project(**json.loads(Path(self.fixture).read_text()))
         else:
-            value = acquire(self.root, self.config, self.config_path, self.runtime)
+            with self._guard:
+                force, self._force_usage = self._force_usage, False
+            value = acquire(self.root, self.config, self.config_path, self.runtime, self._usage, force)
         value['read_only'] = self.fixture is not None
         return value
 
@@ -132,6 +137,8 @@ class ProjectionController:
             return copy.deepcopy(self._value)
 
     def refresh(self):
+        with self._guard:
+            self._force_usage = True
         if self.runtime:
             self.runtime.request_refresh()
         self._wake.set()
@@ -195,6 +202,8 @@ def run_native(controller, *, show=False, probe=None):
                 self.ready = True
             elif action == 'refresh':
                 controller.refresh()
+            elif action == 'state_refresh':
+                controller._wake.set()
             elif action == 'close':
                 self.popover.performClose_(None)
             elif action == 'quit':

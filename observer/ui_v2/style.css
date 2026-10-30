@@ -75,6 +75,10 @@ input[type="search"] { width: 100%; border: 1px solid var(--line); border-radius
 .resource-form { display: flex; flex-direction: column; gap: 10px; padding-top: 10px; }
 .form-field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
 .form-field input, .form-field select { width: 100%; font: inherit; font-size: 13px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 7px; }
+.usage-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+.usage-grid .fact { margin: 0; }
+.usage-grid dd { font-variant-numeric: tabular-nums; font-weight: 600; }
+.session-task-title { text-align: left; font-size: 14px; font-weight: 600; color: var(--accent); padding: 0; overflow-wrap: anywhere; }
 footer { font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 8px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 @media (prefers-color-scheme: dark) { :root { --bg: #242426; --card: #303033; --text: #ededf0; --muted: #aaaab2; --line: #47474e; --accent: #78b1ff; --warning: #f2c16a; --warning-bg: #453923; --focus: #7ab5ff; } }

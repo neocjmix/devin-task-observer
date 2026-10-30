@@ -110,3 +110,11 @@ class UIActionTests(unittest.TestCase):
         self.assertEqual(state['management']['lifecycle'], 'active')
         self.assertFalse(state['management']['observation_enabled'])
         self.assertEqual(state['notes'][0]['text'], 'Keep')
+
+    def test_reporting_toggle_is_per_task_session_and_revision_guarded(self):
+        self.core.create('second', 'Second', 'session-a')
+        request = self.request('reporting', session_id='session-a', enabled=True, expected_revision=1)
+        self.assertTrue(response(self.root, request)['ok'])
+        self.assertTrue(self.core.read('task')['state']['contributions'][0]['reporting'])
+        self.assertFalse(self.core.read('second')['state']['contributions'][0]['reporting'])
+        self.assertFalse(response(self.root, dict(request, request_id='stale', enabled=False))['ok'])

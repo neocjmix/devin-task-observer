@@ -77,7 +77,7 @@ class ProjectionTests(unittest.TestCase):
         self.assertTrue(self.value['capabilities']['task_observation_toggle'])
         self.assertTrue(all(flag is False for name, flag in self.value['capabilities'].items()
                             if name not in ('typed_item_roles', 'registered_resources',
-                                            'task_lifecycle', 'task_observation_toggle')))
+                                            'task_lifecycle', 'task_observation_toggle', 'session_tokens')))
         self.assertTrue(all('role' not in item and 'attention_required' not in item
                             for items in self.value['items'].values() for item in items.values()))
         for task in self.value['tasks'].values():
@@ -206,6 +206,19 @@ class ProjectionTests(unittest.TestCase):
         self.inputs['observations']['sessions'].append(deepcopy(self.inputs['observations']['sessions'][0]))
         with self.assertRaisesRegex(ValueError, 'duplicate observed session'):
             project(**self.inputs)
+
+    def test_session_usage_is_not_allocated_or_double_counted_by_task(self):
+        metrics = {'status': 'available', 'input_total': 120, 'input_new': 20,
+                   'input_cached': 100, 'output': 8, 'measured_at': '2026-10-31T00:00:00+00:00'}
+        supplied = {'sessions': {'session-a': metrics}, 'error': 'source_busy', 'stale': True,
+                    'last_attempt': '2026-10-31T00:00:15+00:00'}
+        value = project(**self.inputs, session_usage=supplied)
+        self.assertEqual(value['sessions']['session-a']['usage'], metrics)
+        self.assertTrue(value['sessions']['session-a']['usage_stale'])
+        self.assertEqual(value['sessions']['session-a']['usage_error'], 'source_busy')
+        self.assertTrue(all('usage' not in task for task in value['tasks'].values()))
+        value['sessions']['session-a']['usage']['input_new'] = -1
+        self.assertEqual(metrics['input_new'], 20)
 
 
 if __name__ == '__main__':

@@ -62,9 +62,11 @@ assert.equal(ui.candidateDraft({...candidate, kind: 'worktree', value: '/synthet
 // Cross the actual Python schema/core/projection boundary, not a hand-shaped UI contract.
 const {execFileSync} = require('node:child_process');
 const coreBoundary = JSON.parse(execFileSync(process.env.PYTHON || 'python3', ['-c', `
-import json, tempfile, sys
+import json, tempfile, sys, sqlite3
+from pathlib import Path
 from observer.cooperative import CooperativeState
 from observer.ui_projection import project
+from observer.session_usage import load_session_usage
 with tempfile.TemporaryDirectory() as root:
     core = CooperativeState(root)
     core.create('ui-test', 'Synthetic explicit intervention', 'session-a')
@@ -85,7 +87,21 @@ with tempfile.TemporaryDirectory() as root:
     core.lifecycle('ui-test', True, 5)
     completed = project(core.list())
     core.lifecycle('ui-test', False, 6)
-    print(json.dumps({'active': active, 'off': off, 'completed': completed, 'restored': project(core.list())}))
+    restored = project(core.list())
+    core.observation('ui-test', True, 7)
+    core.create('other-task', 'Synthetic other task', 'session-b')
+    core.link('other-task', 'session-a', 1)
+    source = Path(root) / 'usage.sqlite'
+    with sqlite3.connect(source) as db:
+        db.executescript('CREATE TABLE refinery_schema_history(version INTEGER); INSERT INTO refinery_schema_history VALUES(17); CREATE TABLE sessions(id TEXT, working_directory TEXT, last_activity_at INTEGER); CREATE TABLE message_nodes(session_id TEXT,node_id INTEGER,chat_message TEXT);')
+        db.execute('INSERT INTO sessions VALUES(?,?,?)', ('session-a', '/synthetic', 1793447700))
+        message = json.dumps({'role': 'assistant', 'message_id': 'duplicate', 'metadata': {'metrics': {'input_tokens': 100, 'cache_read_tokens': 900, 'output_tokens': 50}}})
+        db.executemany('INSERT INTO message_nodes VALUES(?,?,?)', [('session-a', n, message) for n in (1, 2)])
+    usage = load_session_usage({'source': str(source), 'workspaces': ['/synthetic']}, measured_at='2026-10-31T12:00:00+00:00')
+    def record(sid, n):
+        return {'id': sid, 'title': sid, 'workspace': '/synthetic', 'resource_mentions': [{'kind': 'pr', 'value': 'https://github.com/example/demo/pull/42', 'verification': 'mentioned', 'source_ref': 'mentions-v2', 'node_id': n, 'source_hash': 'a'*64}]}
+    shared = project(core.list(), observations={'sessions': [record('session-a', 1), record('session-b', 2)]}, session_usage={'sessions': usage, 'stale': False, 'error': None, 'last_attempt': '2026-10-31T12:00:00+00:00'})
+    print(json.dumps({'active': active, 'off': off, 'completed': completed, 'restored': restored, 'shared': shared}))
 `], {cwd: path.join(__dirname, '..'), encoding: 'utf8', input: JSON.stringify(candidateResource)}));
 const actual = coreBoundary.active;
 assert.equal(ui.taskRows(actual)[0].attention, true);
@@ -102,6 +118,31 @@ assert.equal(ui.taskRows(coreBoundary.restored)[0].lifecycle, 'active');
 assert.equal(ui.taskRows(coreBoundary.restored)[0].observing, false);
 assert.equal(coreBoundary.restored.contributions['ui-test']['session-a'].reporting, true);
 assert.deepEqual(coreBoundary.restored.items, actual.items);
+const shared = coreBoundary.shared;
+const sharedCandidate = Object.values(shared.resource_candidates)[0];
+assert.equal(sharedCandidate.sources.length, 2);
+assert.equal(shared.sessions['session-a'].task_ids.length, 2);
+const scopedResource = ui.candidateDraft(sharedCandidate, 'scoped-pr', shared.tasks['ui-test'].session_ids);
+assert.deepEqual(scopedResource.evidence.map(evidence => evidence.session_id), ['session-a']);
+const scopedPersisted = JSON.parse(execFileSync(process.env.PYTHON || 'python3', ['-c', `
+import json, tempfile, sys
+from observer.cooperative import CooperativeState
+with tempfile.TemporaryDirectory() as root:
+    core = CooperativeState(root)
+    core.create('ui-test', 'Synthetic task A', 'session-a')
+    core.create('other-task', 'Synthetic task B', 'session-b')
+    core.resource_put('ui-test', json.load(sys.stdin), 1)
+    print(json.dumps(core.read('ui-test')['state']))
+`], {cwd: path.join(__dirname, '..'), encoding: 'utf8', input: JSON.stringify(scopedResource)}));
+assert.deepEqual(scopedPersisted.contributions.map(edge => edge.session_id), ['session-a']);
+assert.deepEqual(scopedPersisted.resources[0].evidence, scopedResource.evidence);
+const measured = shared.sessions['session-a'];
+assert.deepEqual(ui.usageRows(measured).map(row => row.value), [1000, 100, 900, 50]);
+assert.equal(measured.usage.duplicate_node_count, 1);
+assert.equal(ui.sessionActivity(measured).source, 'Devin Local');
+assert.equal(ui.sessionActivity({...measured, activity: {last_seen: '2027-01-01T00:00:00Z'}}).source, '보고 훅');
+assert.deepEqual(ui.usageRows({usage: null}).map(row => row.value), [null, null, null, null]);
+assert.equal(shared.tasks['ui-test'].usage, undefined);
 
 // A small DOM harness exercises refresh and asynchronous action ownership.
 const vm = require('node:vm');
@@ -159,7 +200,7 @@ ids.get('task-list').children.find(card => card.dataset.taskId === 'b').fire('cl
 assert.equal(window.Observer.actionResult({request_id: noteRequest.request_id, ok: true, result: {}}), true);
 assert.equal(ids.get('detail-title').textContent, '같은 제목');
 assert.equal(draft.value, 'edited after request');
-assert.equal(sent.at(-1).action, 'refresh');
+assert.equal(sent.at(-1).action, 'state_refresh');
 assert.equal(window.Observer.actionResult({request_id: noteRequest.request_id, ok: true}), false);
 ids.get('back').fire('click');
 ids.get('task-list').children.find(card => card.dataset.taskId === 'a').fire('click');
@@ -199,6 +240,7 @@ assert.equal(latestHistory.hidden, false);
 assert.equal(ui.historyChanges(historyEntry(7), historyEntry(5)), null);
 runtime.tasks.a.metadata.resources = [JSON.parse(JSON.stringify(actual.tasks['ui-test'].metadata.resources[0]))];
 runtime.resource_candidates[candidate.candidate_id] = JSON.parse(JSON.stringify(candidate));
+runtime.resource_candidates[candidate.candidate_id].sources = [...candidate.sources.map(source => ({...source, session_id: 's'})), {...candidate.sources[0], session_id: 'unrelated'}];
 runtime.tasks.a.resource_candidate_ids = [candidate.candidate_id];
 window.Observer.receive(runtime);
 const resourceCard = walk(detail).find(element => element.className.includes('resource-card'));
@@ -229,7 +271,8 @@ assert.equal(resourceLabel.value, 'Review PR');
 resourceForm.fire('submit');
 assert.equal(sent.at(-1).action, 'resource_put');
 assert.equal(sent.at(-1).expected_revision, 3);
-assert.deepEqual(sent.at(-1).resource.evidence, candidateResource.evidence);
+assert.deepEqual(sent.at(-1).resource.evidence, candidateResource.evidence.map(evidence => ({...evidence, session_id: 's'})));
+assert.equal(runtime.resource_candidates[candidate.candidate_id].sources.length, 3);
 window.Observer.actionResult({request_id: sent.at(-1).request_id, ok: false, error: {code: 'revision_conflict'}});
 assert.equal(resourceLabel.value, 'Review PR');
 resourceForm.fire('submit');
@@ -285,6 +328,46 @@ window.Observer.receive(runtime);
 assert.equal(observationButton.textContent, '자동 반영 켜기');
 assert.equal(observationButton.hidden, false);
 assert.equal(draft.value, 'edited after request');
+runtime.sessions.s.usage = JSON.parse(JSON.stringify(measured.usage)); runtime.sessions.s.usage_stale = false;
+runtime.sessions.s.task_ids = ['a', 'b']; runtime.contributions.b.s = {reporting: false, last_report_at: null}; runtime.tasks.b.session_ids = ['s'];
+window.Observer.receive(runtime);
+const linkedSession = walk(detail).find(element => element.tagName === 'BUTTON' && element.className.includes('session-button'));
+linkedSession.fire('click');
+const usagePanel = walk(detail).find(element => element.className.includes('usage-panel')); usagePanel.open = true;
+assert.ok(usagePanel.textContent.includes('1,000'));
+assert.ok(usagePanel.textContent.includes('캐시 입력 · 입력 합계에 포함900'));
+assert.ok(usagePanel.textContent.includes('청구 사용량이 아닙니다'));
+assert.ok(usagePanel.textContent.includes('devin_local_sqlite_v17'));
+assert.equal(walk(detail).filter(element => element.className.includes('usage-grid')).length, 1);
+const reportingToggle = walk(detail).find(element => element.tagName === 'BUTTON' && element.textContent === '자동보고 끄기');
+reportingToggle.focus(); detail.scrollTop = 31;
+runtime.sessions.s.usage_stale = true; runtime.sessions.s.usage_error = 'source_read_failed';
+window.Observer.receive(runtime);
+assert.equal(usagePanel.open, true);
+assert.equal(document.activeElement, reportingToggle);
+assert.equal(detail.scrollTop, 31);
+assert.ok(usagePanel.textContent.includes('마지막 측정값'));
+reportingToggle.fire('click');
+assert.equal(sent.at(-1).action, 'reporting');
+assert.equal(sent.at(-1).task_id, 'a');
+assert.equal(sent.at(-1).session_id, 's');
+assert.equal(sent.at(-1).enabled, false);
+assert.equal(sent.at(-1).expected_revision, 7);
+const reportingRequest = sent.at(-1);
+ids.get('back').fire('click');
+window.Observer.actionResult({request_id: reportingRequest.request_id, ok: true, result: {}});
+assert.equal(sent.at(-1).action, 'state_refresh');
+assert.equal(ids.get('detail-title').textContent, '같은 제목');
+assert.equal(draft.value, 'edited after request');
+runtime.contributions.a.s.reporting = false; window.Observer.receive(runtime); linkedSession.fire('click');
+assert.equal(detail.scrollTop, 31);
+assert.equal(usagePanel.open, true);
+assert.equal(reportingToggle.textContent, '자동보고 켜기');
+runtime.sessions.s.usage = null; runtime.health.usage = {error: 'source_unavailable'}; window.Observer.receive(runtime);
+assert.ok(usagePanel.textContent.includes('사용량 정보 없음'));
+assert.ok(usagePanel.textContent.includes('source_read_failed'));
+assert.equal(walk(usagePanel).find(element => element.className === 'usage-grid').hidden, true);
+ids.get('back').fire('click');
 runtime.read_only = true; window.Observer.receive(runtime);
 assert.equal(draft.disabled, true);
 assert.equal(window.Observer.receive({projection_version: 99}), false);

@@ -81,12 +81,21 @@
     return ['situation', 'intervention', 'next_action', 'resume'].map(role => ({role, items: items.filter(item => item.role === role && (role !== 'intervention' || item.attention_required === true))})).filter(group => group.items.length);
   }
   const RESOURCE_LABELS = {issue: '이슈', document: '문서·위키', environment: '환경', repository: '저장소', branch: '브랜치', pr: 'PR', communication: '소통', deliverable: '산출물', other: '기타'};
-  function candidateDraft(candidate, resourceId) {
+  function candidateDraft(candidate, resourceId, sessionIds) {
     const kind = ({ticket: 'issue', issue: 'issue', pr: 'pr', repo: 'repository', repository: 'repository', branch: 'branch', commit: 'other', worktree: 'environment'})[candidate.kind] || 'other';
     const target = candidate.value;
     return {resource_id: resourceId, kind, label: target.length > 300 ? target.slice(0, 297) + '…' : target, target,
       open_mode: /^https?:\/\//i.test(target) ? 'url' : target.startsWith('/') && candidate.kind !== 'worktree' ? 'file' : 'copy',
-      evidence: (candidate.sources || []).map(source => ({session_id: source.session_id, kind: 'session_event', reference: JSON.stringify({source_ref: source.source_ref, node_id: source.node_id, source_hash: source.source_hash, workspace: source.workspace, verification: source.verification})}))};
+      evidence: (candidate.sources || []).filter(source => !sessionIds || sessionIds.includes(source.session_id)).map(source => ({session_id: source.session_id, kind: 'session_event', reference: JSON.stringify({source_ref: source.source_ref, node_id: source.node_id, source_hash: source.source_hash, workspace: source.workspace, verification: source.verification})}))};
+  }
+  function sessionActivity(session) {
+    return [{at: session?.activity?.last_seen, source: '보고 훅'}, {at: session?.usage?.source_activity_at, source: 'Devin Local', stale: Boolean(session?.usage_stale)}]
+      .filter(entry => milliseconds(entry.at) != null).sort((a, b) => milliseconds(b.at) - milliseconds(a.at))[0] || null;
+  }
+  function usageRows(session) {
+    const usage = session?.usage;
+    return [['input_total', '입력 합계'], ['input_new', '새 입력'], ['input_cached', '캐시 입력 · 입력 합계에 포함'], ['output', '출력']]
+      .map(([key, label]) => ({key, label, value: usage?.status === 'available' && Number.isSafeInteger(usage[key]) && usage[key] >= 0 ? usage[key] : null}));
   }
   function historyChanges(current, previous) {
     if (!previous || current.revision !== previous.revision + 1) return null;
@@ -106,12 +115,12 @@
     for (const field of ['title', 'view', 'contributions', 'resources', 'management']) if (JSON.stringify(previous[field]) !== JSON.stringify(current[field])) changes.push({title: '태스크', field, before: previous[field], after: current[field]});
     return changes;
   }
-  const helpers = {milliseconds, time, valueText, actorName, taskRows, collectionHealth, filterRows, roleGroups, historyChanges, candidateDraft, RESOURCE_LABELS, management, observing};
+  const helpers = {milliseconds, time, valueText, actorName, taskRows, collectionHealth, filterRows, roleGroups, historyChanges, candidateDraft, RESOURCE_LABELS, management, observing, sessionActivity, usageRows};
   if (typeof module !== 'undefined' && module.exports) module.exports = helpers;
   if (!root.document) return;
 
   const document = root.document;
-  const state = {projection: null, query: '', filter: 'all', selected: null, session: null, homeScroll: 0, tasks: new Map(), pending: new Map(), sequence: 0};
+  const state = {projection: null, query: '', filter: 'all', selected: null, session: null, homeScroll: 0, tasks: new Map(), sessions: new Map(), pending: new Map(), sequence: 0};
   const $ = id => document.getElementById(id);
   function text(node, value) { const next = value == null ? '' : String(value); if (node.textContent !== next) node.textContent = next; }
   function post(action, payload) {
@@ -138,7 +147,7 @@
     if (!pending) return false;
     state.pending.delete(response.request_id);
     pending.onResult(response);
-    if (response.ok && !['history', 'resource_open', 'resource_copy'].includes(pending.action)) post('refresh');
+    if (response.ok && !['history', 'resource_open', 'resource_copy'].includes(pending.action)) post('state_refresh');
     return true;
   }
   function actionMessage(element, message, error) { text(element, message); element.classList.toggle('error', Boolean(error)); }
@@ -170,6 +179,8 @@
     Array.from($('task-list').children).find(card => card.dataset.taskId === selected)?.focus({preventScroll: true});
   }
   function saveDetailScroll() {
+    const sessionView = state.sessions.get(state.session);
+    if (sessionView) { sessionView.scroll = $('detail-body').scrollTop; return; }
     const view = state.tasks.get(state.selected);
     if (view && !state.session) view.scroll = $('detail-body').scrollTop;
   }
@@ -280,7 +291,7 @@
     view.resourceId = resource.resource_id; view.resourceRevision = state.projection.tasks[taskId]?.displayed_revision;
     view.resourceEvidenceValues = resource.evidence || []; view.resourceDirty = true; view.resourceConflict = false;
     for (const key of ['kind', 'label', 'target', 'open_mode']) view.resourceInputs[key].value = resource[key];
-    text(view.resourceEvidence, view.resourceEvidenceValues.length ? '연결된 근거 ' + view.resourceEvidenceValues.length + '개를 함께 보존합니다.' : '');
+    text(view.resourceEvidence, view.resourceEvidenceValues.length ? '이 태스크에 연결된 세션의 근거 ' + view.resourceEvidenceValues.length + '개를 함께 보존합니다. 다른 세션의 발견 근거는 후보에 남습니다.' : '');
     text(view.resourceSave, '리소스 저장'); actionMessage(view.resourceMessage, ''); view.resourceInputs.label.focus();
   }
   function renderResources(view, task) {
@@ -322,8 +333,8 @@
     view.resourceArchived.hidden = !resources.some(resource => resource.archived);
     for (const candidate of candidates) {
       let card = view.candidateCards.get(candidate.candidate_id);
-      if (!card) { card = {root: node('article', 'panel'), heading: node('strong'), target: node('pre'), evidence: node('pre'), add: node('button', 'action-button', '이 태스크에 등록')}; const disclosure = node('details', 'item-details'); disclosure.append(node('summary', '', '발견 근거'), card.evidence); card.root.append(card.heading, card.target, node('p', 'muted', '후보 · 태스크 소속 미확정'), card.add, disclosure); card.add.addEventListener('click', () => { const current = state.projection.resource_candidates[candidate.candidate_id]; if (current && canWrite(state.projection.tasks[taskId])) editResource(view, taskId, candidateDraft(current, 'ui-resource-' + Date.now().toString(36) + '-' + (++state.sequence))); }); view.candidateCards.set(candidate.candidate_id, card); view.candidateList.append(card.root); }
-      text(card.heading, RESOURCE_LABELS[candidateDraft(candidate, '').kind]); text(card.target, candidate.value); text(card.evidence, valueText(candidate.sources)); card.add.disabled = !canWrite(task);
+      if (!card) { card = {root: node('article', 'panel'), heading: node('strong'), target: node('pre'), evidence: node('pre'), add: node('button', 'action-button', '이 태스크에 등록')}; const disclosure = node('details', 'item-details'); disclosure.append(node('summary', '', '발견 근거'), card.evidence); card.root.append(card.heading, card.target, node('p', 'muted', '후보 · 태스크 소속 미확정'), card.add, disclosure); card.add.addEventListener('click', () => { const current = state.projection.resource_candidates[candidate.candidate_id]; if (current && canWrite(state.projection.tasks[taskId])) editResource(view, taskId, candidateDraft(current, 'ui-resource-' + Date.now().toString(36) + '-' + (++state.sequence), state.projection.tasks[taskId]?.session_ids || [])); }); view.candidateCards.set(candidate.candidate_id, card); view.candidateList.append(card.root); }
+      text(card.heading, RESOURCE_LABELS[candidateDraft(candidate, '').kind]); text(card.target, candidate.value); text(card.evidence, valueText(candidate.sources)); card.add.disabled = !canWrite(task); card.add.title = '이 태스크에 연결된 세션의 근거만 등록합니다. 전체 발견 근거는 보존됩니다.';
     }
     const candidateIds = new Set(candidates.map(candidate => candidate.candidate_id));
     for (const [id, card] of view.candidateCards) if (!candidateIds.has(id)) { card.root.remove(); view.candidateCards.delete(id); }
@@ -520,8 +531,8 @@
       const session = state.projection.sessions[id]; const edge = edges[id];
       text(card.children[0], session?.observation?.title || id);
       text(card.children[1], '자동보고 ' + (edge?.reporting ? '켜짐' : '꺼짐') + (edge?.reporting && !observing(task) ? ' · 태스크 반영 중지' : '') + ' · 최근 보고 ' + (edge?.last_report_at ? timeLabel(edge.last_report_at) : '없음'));
-      const activity = session?.activity?.last_seen;
-      text(card.children[2], '최근 활동 · ' + (activity ? timeLabel(activity) : '정보 없음'));
+      const activity = sessionActivity(session);
+      text(card.children[2], '최근 활동 · ' + (activity ? timeLabel(activity.at) + ' · ' + activity.source : '정보 없음'));
     }
     for (const [id, card] of view.sessions) if (!task.session_ids.includes(id)) { card.remove(); view.sessions.delete(id); }
     const notesSignature = JSON.stringify(task.metadata?.notes || []);
@@ -539,23 +550,71 @@
     view.lifecycleButton.disabled = view.observationButton.disabled = view.managementPending || !canWrite(task);
     text(view.managementHelp, completed ? '복원하면 자동 반영이 ' + (settings.previous_observation_enabled ? '켜집니다.' : '꺼진 상태로 돌아갑니다.') : '자동 반영을 꺼도 공유 세션 관측과 저장된 기록은 유지됩니다.');
   }
-  function renderSession() {
-    const session = state.projection.sessions[state.session];
-    text($('detail-title'), session?.observation?.title || state.session);
-    const signature = JSON.stringify([state.selected, state.session, session, state.projection.contributions, session?.task_ids.map(id => [id, state.projection.tasks[id]?.metadata?.title, management(state.projection.tasks[id] || {})])]);
-    if (state.sessionSignature === signature && $('detail-body').firstChild === state.sessionRoot) return;
-    state.sessionSignature = signature; const body = node('div'); state.sessionRoot = body;
-    if (!session) body.append(node('p', 'panel', '이 세션의 관측 정보가 없습니다.'));
-    else {
-      const facts = node('dl', 'panel');
-      const addFact = (title, value) => { const part = node('div', 'fact'); part.append(node('dt', '', title), node('dd', '', value)); facts.append(part); };
-      addFact('세션 ID', session.session_id);
-      addFact('최근 활동', session.activity?.last_seen ? absoluteTime(session.activity.last_seen) : '정보 없음');
-      addFact('작업 공간', session.observation?.workspace || session.activity?.workspace || '정보 없음');
-      body.append(facts); const part = section(body, '연결 태스크 ' + session.task_ids.length + '개');
-      for (const taskId of session.task_ids) { const task = state.projection.tasks[taskId]; const edge = state.projection.contributions?.[taskId]?.[state.session]; const card = node('button', 'panel session-button'); card.append(node('strong', '', task?.metadata?.title || taskId), node('div', 'muted', '자동보고 ' + (edge?.reporting ? '켜짐' : '꺼짐') + (edge?.reporting && task && !observing(task) ? ' · 태스크 반영 중지' : '')), node('div', 'muted', '최근 보고 · ' + (edge?.last_report_at ? absoluteTime(edge.last_report_at) : '없음'))); card.addEventListener('click', () => openTask(taskId)); part.content.append(card); }
+  function createSessionView(sessionId) {
+    const view = {root: node('div'), scroll: 0, edges: new Map()};
+    view.notice = node('p', 'panel'); view.root.append(view.notice);
+    const facts = node('dl', 'panel'); view.facts = {};
+    for (const [key, title] of [['id', '세션 ID'], ['activity', '최근 활동'], ['report', '최근 보고 · 연결 태스크 중'], ['workspace', '작업 공간']]) {
+      const part = node('div', 'fact'); const value = node('dd'); part.append(node('dt', '', title), value); facts.append(part); view.facts[key] = value;
     }
-    $('detail-body').replaceChildren(body);
+    view.root.append(facts);
+    view.usage = node('details', 'panel usage-panel'); view.usage.append(node('summary', '', '토큰 사용량'));
+    view.usageStatus = node('p', 'muted'); view.usage.append(view.usageStatus);
+    view.usageGrid = node('dl', 'usage-grid'); view.metrics = {};
+    for (const row of usageRows(null)) { const part = node('div', 'fact'); const value = node('dd'); part.append(node('dt', '', row.label), value); view.metrics[row.key] = value; view.usageGrid.append(part); }
+    view.usage.append(view.usageGrid);
+    view.usageTime = node('p', 'item-provenance'); view.usageSource = node('p', 'item-provenance'); view.usageBoundary = node('p', 'muted');
+    view.usageDiagnostics = node('details', 'item-details'); view.usageDiagnostics.append(node('summary', '', '측정 정보')); view.usageDiagnosticText = node('pre'); view.usageDiagnostics.append(view.usageDiagnosticText);
+    view.usage.append(view.usageTime, view.usageSource, view.usageBoundary, view.usageDiagnostics); view.root.append(view.usage);
+    view.tasks = section(view.root, '연결 태스크'); state.sessions.set(sessionId, view); return view;
+  }
+  function renderSession() {
+    const sessionId = state.session; const session = state.projection.sessions[sessionId];
+    const view = state.sessions.get(sessionId) || createSessionView(sessionId);
+    const title = session?.observation?.title || sessionId; const client = session?.client_type || session?.observation?.client_type;
+    text($('detail-title'), title + (client ? ' · ' + client : ''));
+    if ($('detail-body').firstChild !== view.root) { $('detail-body').replaceChildren(view.root); $('detail-body').scrollTop = view.scroll; }
+    view.notice.hidden = Boolean(session); text(view.notice, '이 세션의 관측 정보가 없습니다.');
+    if (!session) return;
+    text(view.facts.id, session.session_id);
+    const activity = sessionActivity(session);
+    text(view.facts.activity, activity ? absoluteTime(activity.at) + ' · ' + activity.source + (activity.stale ? ' · 마지막 확인 기록' : '') : '정보 없음');
+    text(view.facts.workspace, session.observation?.workspace || session.usage?.workspace || session.activity?.workspace || '정보 없음');
+    const reports = session.task_ids.map(taskId => state.projection.contributions?.[taskId]?.[sessionId]?.last_report_at).filter(Boolean).sort((a, b) => milliseconds(b) - milliseconds(a));
+    text(view.facts.report, reports.length ? absoluteTime(reports[0]) : '보고 기록 없음');
+    const usage = session.usage; const available = usage?.status === 'available';
+    text(view.usageStatus, available ? session.usage_stale ? '마지막 측정값 · 갱신 확인 필요' : '현재 남아 있는 메시지의 측정값' : '사용량 정보 없음');
+    view.usageStatus.classList.toggle('warning', Boolean(session.usage_stale && available));
+    view.usageGrid.hidden = !available;
+    for (const row of usageRows(session)) text(view.metrics[row.key], row.value == null ? '정보 없음' : row.value.toLocaleString('ko-KR'));
+    text(view.usageTime, usage?.measured_at ? '측정 · ' + absoluteTime(usage.measured_at) : '');
+    text(view.usageSource, usage?.source ? '출처 · ' + usage.source : '');
+    text(view.usageBoundary, usage ? '세션 단위 기록이며 연결 태스크에 나누어 합산하지 않습니다.' + (usage.may_include_inherited_history ? ' 포크 이전 기록이 포함될 수 있습니다.' : '') + (usage.billing_usage === false ? ' 청구 사용량이 아닙니다.' : '') : '');
+    const diagnostics = {status: usage?.status || 'unavailable', reason: usage?.reason || null, coverage: usage?.coverage || null, last_read_error: session.usage_error || state.projection.health?.usage?.error || null, lifetime_complete: usage?.lifetime_complete ?? null, message_count: usage?.message_count ?? null, metric_node_count: usage?.metric_node_count ?? null, duplicate_node_count: usage?.duplicate_node_count ?? null};
+    text(view.usageDiagnosticText, valueText(diagnostics));
+    text(view.tasks.heading, '연결 태스크 ' + session.task_ids.length + '개');
+    for (const taskId of session.task_ids) {
+      const task = state.projection.tasks[taskId]; const edge = state.projection.contributions?.[taskId]?.[sessionId];
+      let card = view.edges.get(taskId);
+      if (!card) {
+        card = {root: node('article', 'panel session-task-card'), pending: false}; card.title = node('button', 'session-task-title'); card.title.addEventListener('click', () => openTask(taskId));
+        card.status = node('p', 'muted'); card.report = node('p', 'muted'); card.toggle = node('button', 'action-button'); card.message = node('p', 'action-message'); card.message.setAttribute('role', 'status');
+        card.toggle.addEventListener('click', () => {
+          const currentTask = state.projection.tasks[taskId]; const currentEdge = state.projection.contributions?.[taskId]?.[sessionId];
+          if (!currentEdge || !canWrite(currentTask) || card.pending) return;
+          card.pending = true; card.toggle.disabled = true;
+          request('reporting', taskId, {session_id: sessionId, enabled: !currentEdge.reporting, expected_revision: currentTask.displayed_revision}, response => {
+            card.pending = false; actionMessage(card.message, response.ok ? '자동보고 설정을 저장했습니다.' : failure(response), !response.ok); card.toggle.disabled = !canWrite(state.projection.tasks[taskId]);
+          });
+        });
+        card.root.append(card.title, card.status, card.report, card.toggle, card.message); view.edges.set(taskId, card); view.tasks.content.append(card.root);
+      }
+      text(card.title, task?.metadata?.title || taskId);
+      text(card.status, '자동보고 ' + (edge?.reporting ? '켜짐' : '꺼짐') + (task && !observing(task) ? ' · 태스크 자동 반영 중지' : ''));
+      text(card.report, '최근 보고 · ' + (edge?.last_report_at ? absoluteTime(edge.last_report_at) : '없음'));
+      text(card.toggle, edge?.reporting ? '자동보고 끄기' : '자동보고 켜기'); card.toggle.setAttribute('aria-pressed', String(Boolean(edge?.reporting))); card.toggle.disabled = card.pending || !canWrite(task);
+    }
+    for (const [id, card] of view.edges) if (!session.task_ids.includes(id)) { card.root.remove(); view.edges.delete(id); }
   }
   function renderDetail() {
     if (!state.selected || !state.projection) return;

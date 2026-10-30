@@ -21,7 +21,7 @@ CAPABILITIES = {
     'task_read_cursor': False,
     'typed_item_roles': True,
     'registered_resources': True,
-    'session_tokens': False,
+    'session_tokens': True,
     'session_locator': False,
 }
 
@@ -54,7 +54,7 @@ def _display_state(row):
 
 
 def project(task_snapshots, *, observations=None, session_activity=None,
-            runtime=None, state_errors=()):
+            runtime=None, state_errors=(), session_usage=None):
     """Normalize existing v1 data without inferring semantics or task ownership.
 
     Input is internal JSON data: FileStore.list() envelopes, observations() output,
@@ -64,8 +64,8 @@ def project(task_snapshots, *, observations=None, session_activity=None,
     sessions and resource candidates are shared. Original item/note order survives
     in item_ids/metadata.notes. No persisted state format changes are needed.
     """
-    rows, observed, activities, run, errors = deepcopy(
-        (task_snapshots, observations, session_activity or {}, runtime, list(state_errors)))
+    rows, observed, activities, run, errors, usage = deepcopy(
+        (task_snapshots, observations, session_activity or {}, runtime, list(state_errors), session_usage))
     result = {
         'projection_version': 1,
         'capabilities': dict(CAPABILITIES),
@@ -76,6 +76,7 @@ def project(task_snapshots, *, observations=None, session_activity=None,
             'runtime': run,
             'observations': (None if observed is None else
                              {key: value for key, value in observed.items() if key != 'sessions'}),
+            'usage': None if usage is None else {key: value for key, value in usage.items() if key != 'sessions'},
         },
     }
 
@@ -84,6 +85,7 @@ def project(task_snapshots, *, observations=None, session_activity=None,
             'session_id': session_id, 'task_ids': [],
             'observation': None, 'activity': activities.get(session_id),
             'plan_snapshots': [], 'resource_candidate_ids': [],
+            'usage': None, 'usage_stale': False, 'usage_error': None,
         })
 
     for row in sorted(rows, key=lambda value: value['task_id']):
@@ -167,4 +169,10 @@ def project(task_snapshots, *, observations=None, session_activity=None,
                 ids = result['tasks'][task_id]['resource_candidate_ids']
                 if candidate_id not in ids:
                     ids.append(candidate_id)
+    if usage is not None:
+        for session_id, metrics in usage.get('sessions', {}).items():
+            entry = session(session_id)
+            entry['usage'] = metrics
+            entry['usage_stale'] = usage.get('stale', False)
+            entry['usage_error'] = usage.get('error')
     return result

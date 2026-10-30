@@ -15,6 +15,7 @@ from .runtime import CollectorRuntime, collector_status, service_running
 from .state_observations import observations
 from .ui_projection import project
 from .ui_actions import response
+from .ui_native import finish
 
 ASSETS = Path(__file__).with_name('ui_v2')
 
@@ -221,6 +222,7 @@ def run_native(controller, *, show=False, probe=None):
             if not self.ready or value is None:
                 return
             for result in controller.results():
+                result = finish(result)
                 self.web.evaluateJavaScript_completionHandler_('window.Observer.actionResult(' + json.dumps(wire_value(result), ensure_ascii=True) + ')', None)
             if value != self.previous:
                 self.previous = value

@@ -99,3 +99,30 @@ it is not an automatic reporting workaround.
 Ordinary Devin tool permissions still apply. This skill grants no auto-approved
 shell access. If the host requests permission for a command, follow its normal
 permission flow; do not bypass it with another tool or edit raw state.
+
+## User-requested resource edits
+
+Automatic reports cannot alter registered resources. On an explicit user editing
+request, read the target task and use its current revision:
+
+```sh
+./observerctl state --root "$observer_root" resource-put --task "$task_id" --file "$resource_file" --expected-revision "$revision" --request-id "$request_id"
+./observerctl state --root "$observer_root" resource-archive --task "$task_id" --resource "$resource_id" --archived on --expected-revision "$revision" --request-id "$request_id"
+```
+
+`--archived off` restores an archived registration. The resource JSON requires
+`resource_id`, `kind`, `label`, `target`, `open_mode`; optional `evidence` uses the
+same linked-session references as reports. Kinds: `issue`, `document`,
+`environment`, `repository`, `branch`, `pr`, `communication`, `deliverable`,
+`other`. Modes: `url` for absolute HTTP(S), `file` for an absolute local path,
+`copy` for literal text such as a branch name. Opening is a separate UI action;
+registration never probes or opens the target. Credentials in URLs and control
+characters are rejected. No session-control URL schemes are allowed as links.
+
+Reusing an ID updates that registration; omitting evidence preserves its sources.
+Human creation attribution, history and archive state survive updates. Explicit
+archive/restore retains the registration and prior history. External status stays
+`unknown`; registration is not external verification. A candidate is not confirmed
+automatically: preserve the chosen source node ID/hash and session reference when
+the user explicitly registers it. Inspect `schema --kind resource` or validate the
+input with `validate --kind resource --file ...` before submitting.

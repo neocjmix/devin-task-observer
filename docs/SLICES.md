@@ -61,3 +61,5 @@ M3-S01에서 새 태스크 상태는 파일을 원본으로 삼는다. 기존 SQ
 | [UI-V2-S1](slices/UI-V2-S1.md) | Python + WKWebView 팝오버·홈·검색·건강 상태 | 관련 Python 40 통과, JS 18 assertions, 실제 Mac 표시·검색·복귀 확인 |
 
 | [UI-V2-S2](slices/UI-V2-S2.md) | 태스크 상세·역할·메모·고정·이력 | 관련 Python 59 통과, JS 경계·DOM 회귀 통과, 실제 Mac 메모 저장·이력 확인 |
+
+| [UI-V2-S3](slices/UI-V2-S3.md) | 영속 리소스·후보 등록·열기·복사 | 관련 Python 55 통과, JS 회귀, 실제 Mac 등록·복사 확인 |

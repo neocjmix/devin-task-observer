@@ -5,6 +5,8 @@ schemas are generated from these same definitions by `observerctl state schema`.
 """
 import json
 import re
+from pathlib import PurePosixPath
+from urllib.parse import urlsplit
 
 ID = {'type': 'string', 'pattern': r'^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$'}
 TEXT = {'type': 'string', 'maxLength': 16000}
@@ -58,6 +60,22 @@ LEGACY = obj({'migration_id': ID, 'source_task_id': ID, 'source_revision': REV,
               'archived_contributions': array({'type': 'object'})})
 TASK['properties']['legacy'] = LEGACY
 
+RESOURCE_INPUT = obj({
+    'resource_id': ID,
+    'kind': {'enum': ['issue', 'document', 'environment', 'repository', 'branch',
+                      'pr', 'communication', 'deliverable', 'other']},
+    'label': {'type': 'string', 'minLength': 1, 'maxLength': 300},
+    'target': {'type': 'string', 'minLength': 1, 'maxLength': 4000},
+    'open_mode': {'enum': ['url', 'file', 'copy']},
+    'evidence': array(EVIDENCE, 100),
+}, ['resource_id', 'kind', 'label', 'target', 'open_mode'])
+HUMAN_ACTOR = obj({'kind': {'const': 'human'}, 'session_id': {'type': 'null'}})
+RESOURCE = obj({**RESOURCE_INPUT['properties'], 'archived': {'type': 'boolean'},
+                'created_by': HUMAN_ACTOR, 'updated_by': HUMAN_ACTOR,
+                'created_at': TEXT, 'updated_at': TEXT,
+                'external_status': {'const': 'unknown'}})
+TASK['properties']['resources'] = array(RESOURCE)
+
 CHANGE_FIELDS = {'item_id': ID, 'title': ITEM['properties']['title'], 'value': {},
                  'status': ITEM['properties']['status'], 'evidence': array(EVIDENCE, 100)}
 CHANGE = {'anyOf': [
@@ -80,7 +98,8 @@ EDIT = obj({'schema_version': {'const': 1}, 'task_id': ID, 'expected_revision': 
             'view': TASK['properties']['view']})
 CONTEXT = obj({'schema_version': {'const': 1}, 'session_id': SID,
                'identity_source': {'enum': ['explicit_registration', 'devin_hook']}})
-SCHEMAS = {'task': TASK, 'report': REPORT, 'edit': EDIT, 'context': CONTEXT}
+SCHEMAS = {'task': TASK, 'report': REPORT, 'edit': EDIT, 'context': CONTEXT,
+           'resource': RESOURCE_INPUT}
 MAX_BYTES = 2 * 1024 * 1024
 
 
@@ -142,6 +161,8 @@ def validate(value, kind):
         _validate(value, SCHEMAS[kind])
     except RecursionError as error:
         raise ValueError('JSON nesting too deep') from error
+    if kind == 'resource':
+        validate_resource_target(value)
     if kind == 'edit':
         ids = [i['item_id'] for i in value['items']]
         if len(ids) != len(set(ids)):
@@ -159,6 +180,14 @@ def validate(value, kind):
             if len(ids) != len(set(ids)):
                 raise ValueError('$.' + key + ': duplicate ID')
         sessions = {x['session_id'] for x in value['contributions']}
+        resources = value.get('resources', [])
+        if len({r['resource_id'] for r in resources}) != len(resources):
+            raise ValueError('$.resources: duplicate ID')
+        for resource in resources:
+            validate_resource_target(resource)
+            for evidence in resource['evidence']:
+                if evidence['session_id'] not in sessions:
+                    raise ValueError('resource evidence refers to an unlinked session')
         for item in value['items']:
             if item['commit_sequence'] > value['revision']:
                 raise ValueError('item commit_sequence exceeds task revision')
@@ -171,6 +200,35 @@ def validate(value, kind):
             if actor['kind'] == 'session' and actor['session_id'] not in sessions:
                 raise ValueError('actor refers to an unlinked session')
     return value
+
+
+def validate_resource_target(resource):
+    """Validate an explicit opener intent, without filesystem/network probes.
+
+    Copy mode is literal text and never an instruction to open a protocol. URLs
+    have a deliberately small scheme allowlist; session-control schemes are not
+    resource links. Existence, access and external status remain unknown.
+    """
+    target, mode = resource['target'], resource['open_mode']
+    if not resource['label'].strip():
+        raise ValueError('resource label must not be blank')
+    if not target.strip() or any(ord(c) < 32 or ord(c) == 127 for c in target):
+        raise ValueError('resource target must not be blank or contain control characters')
+    if mode == 'url':
+        if any(c.isspace() for c in target) or '\\' in target:
+            raise ValueError('resource URL must not contain whitespace or backslashes')
+        parsed = urlsplit(target)
+        if parsed.scheme not in ('http', 'https') or not parsed.hostname:
+            raise ValueError('resource URL must be an absolute HTTP or HTTPS URL')
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError('resource URL must not contain credentials')
+        # Accessing port also validates malformed/non-numeric/out-of-range ports.
+        parsed.port
+    elif mode == 'file':
+        if not PurePosixPath(target).is_absolute() or target.startswith('//'):
+            raise ValueError('resource file target must be an absolute local path')
+    elif mode != 'copy':
+        raise ValueError('unsupported resource opening mode')
 
 
 def published(kind):

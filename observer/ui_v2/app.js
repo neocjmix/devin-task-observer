@@ -73,6 +73,14 @@
     const items = Object.values((projection.items || {})[taskId] || {}).filter(item => !item.archived);
     return ['situation', 'intervention', 'next_action', 'resume'].map(role => ({role, items: items.filter(item => item.role === role && (role !== 'intervention' || item.attention_required === true))})).filter(group => group.items.length);
   }
+  const RESOURCE_LABELS = {issue: '이슈', document: '문서·위키', environment: '환경', repository: '저장소', branch: '브랜치', pr: 'PR', communication: '소통', deliverable: '산출물', other: '기타'};
+  function candidateDraft(candidate, resourceId) {
+    const kind = ({ticket: 'issue', issue: 'issue', pr: 'pr', repo: 'repository', repository: 'repository', branch: 'branch', commit: 'other', worktree: 'environment'})[candidate.kind] || 'other';
+    const target = candidate.value;
+    return {resource_id: resourceId, kind, label: target.length > 300 ? target.slice(0, 297) + '…' : target, target,
+      open_mode: /^https?:\/\//i.test(target) ? 'url' : target.startsWith('/') && candidate.kind !== 'worktree' ? 'file' : 'copy',
+      evidence: (candidate.sources || []).map(source => ({session_id: source.session_id, kind: 'session_event', reference: JSON.stringify({source_ref: source.source_ref, node_id: source.node_id, source_hash: source.source_hash, workspace: source.workspace, verification: source.verification})}))};
+  }
   function historyChanges(current, previous) {
     if (!previous || current.revision !== previous.revision + 1) return null;
     const changes = [];
@@ -88,10 +96,10 @@
     for (const item of oldItems.values()) changes.push({title: item.title, field: '제거', before: item.value, after: null});
     const oldNotes = new Set((previous.notes || []).map(note => note.note_id));
     for (const note of current.notes || []) if (!oldNotes.has(note.note_id)) changes.push({title: '메모', field: '추가', before: null, after: note.text});
-    for (const field of ['title', 'view', 'contributions']) if (JSON.stringify(previous[field]) !== JSON.stringify(current[field])) changes.push({title: '태스크', field, before: previous[field], after: current[field]});
+    for (const field of ['title', 'view', 'contributions', 'resources']) if (JSON.stringify(previous[field]) !== JSON.stringify(current[field])) changes.push({title: '태스크', field, before: previous[field], after: current[field]});
     return changes;
   }
-  const helpers = {milliseconds, time, valueText, actorName, taskRows, collectionHealth, filterRows, roleGroups, historyChanges};
+  const helpers = {milliseconds, time, valueText, actorName, taskRows, collectionHealth, filterRows, roleGroups, historyChanges, candidateDraft, RESOURCE_LABELS};
   if (typeof module !== 'undefined' && module.exports) module.exports = helpers;
   if (!root.document) return;
 
@@ -123,7 +131,7 @@
     if (!pending) return false;
     state.pending.delete(response.request_id);
     pending.onResult(response);
-    if (response.ok && pending.action !== 'history') post('refresh');
+    if (response.ok && !['history', 'resource_open', 'resource_copy'].includes(pending.action)) post('refresh');
     return true;
   }
   function actionMessage(element, message, error) { text(element, message); element.classList.toggle('error', Boolean(error)); }
@@ -199,12 +207,126 @@
     const heading = node('h3', 'section-title', title); const content = node('div'); parent.append(heading, content);
     return {heading, content};
   }
+  function createResourceView(view, taskId) {
+    view.resourceGroups = new Map(); view.resourceCards = new Map(); view.candidateCards = new Map();
+    view.resourceList = node('div'); view.resourceSection.content.append(view.resourceList);
+    view.resourceEmpty = node('p', 'muted', '아직 연결된 리소스가 없습니다.'); view.resourceSection.content.append(view.resourceEmpty);
+    view.resourceArchived = node('details', 'resource-group'); view.resourceArchived.append(node('summary', '', '보관한 리소스')); view.resourceArchivedList = node('div'); view.resourceArchived.append(view.resourceArchivedList); view.resourceSection.content.append(view.resourceArchived);
+    view.candidates = node('details', 'resource-group'); view.candidateSummary = node('summary', '', '발견된 후보'); view.candidateList = node('div'); view.candidates.append(view.candidateSummary, view.candidateList); view.resourceSection.content.append(view.candidates);
+    view.legacyResources = node('details', 'resource-group'); view.legacyResources.append(node('summary', '', '이전 등록 기록')); view.legacyResourceList = node('div'); view.legacyResources.append(view.legacyResourceList); view.resourceSection.content.append(view.legacyResources);
+    view.resourceEditor = node('details', 'panel resource-editor'); view.resourceEditor.append(node('summary', '', '리소스 등록'));
+    view.resourceForm = node('form', 'resource-form'); view.resourceInputs = {};
+    const fields = [['kind', '분류', Object.entries(RESOURCE_LABELS)], ['label', '표시 이름'], ['target', '주소 또는 값'], ['open_mode', '사용 방법', [['url', 'URL 열기'], ['file', '로컬 파일 열기'], ['copy', '값 복사']]]];
+    for (const [key, label, options] of fields) {
+      const wrapper = node('label', 'form-field'); wrapper.append(node('span', '', label));
+      const input = node(options ? 'select' : 'input'); input.setAttribute('aria-label', '리소스 ' + label);
+      if (options) for (const [value, title] of options) { const option = node('option', '', title); option.value = value; input.append(option); }
+      else { input.type = 'text'; input.maxLength = key === 'label' ? 300 : 4000; input.required = true; }
+      input.value = key === 'kind' ? 'other' : key === 'open_mode' ? 'url' : '';
+      input.addEventListener(options ? 'change' : 'input', () => { view.resourceDirty = true; if (view.resourceRevision == null) view.resourceRevision = state.projection.tasks[taskId]?.displayed_revision; });
+      view.resourceInputs[key] = input; wrapper.append(input); view.resourceForm.append(wrapper);
+    }
+    view.resourceEvidence = node('p', 'muted'); view.resourceForm.append(view.resourceEvidence);
+    const controls = node('div', 'button-row'); view.resourceSave = node('button', 'action-button', '리소스 저장'); view.resourceSave.type = 'submit';
+    view.resourceCancel = node('button', 'action-button', '입력 취소'); view.resourceCancel.type = 'button'; view.resourceCancel.addEventListener('click', () => { if (!view.resourcePending) resetResourceForm(view); });
+    controls.append(view.resourceSave, view.resourceCancel); view.resourceForm.append(controls);
+    view.resourceMessage = node('p', 'action-message'); view.resourceMessage.setAttribute('role', 'status'); view.resourceForm.append(view.resourceMessage);
+    view.resourceForm.addEventListener('submit', event => {
+      event.preventDefault(); const task = state.projection.tasks[taskId];
+      if (!canWrite(task) || view.resourcePending) return;
+      const resource = resourceFormValue(view);
+      if (!resource.label.trim() || !resource.target.trim()) { actionMessage(view.resourceMessage, '표시 이름과 주소 또는 값을 입력하세요.', true); return; }
+      if (resource.evidence.length > 100 || resource.evidence.some(evidence => evidence.reference.length > 2000)) { actionMessage(view.resourceMessage, '근거가 저장 한도를 넘습니다. 근거를 줄이거나 누락하지 않고 등록하려면 별도 정리가 필요합니다.', true); return; }
+      view.resourceId = resource.resource_id; view.resourcePending = true; view.resourceSave.disabled = true; view.resourceCancel.disabled = true;
+      const submitted = JSON.stringify(resource); actionMessage(view.resourceMessage, '저장 중…');
+      const revision = view.resourceConflict ? task.displayed_revision : view.resourceRevision ?? task.displayed_revision;
+      request('resource_put', taskId, {resource, expected_revision: revision}, response => {
+        view.resourcePending = false; view.resourceCancel.disabled = false;
+        if (response.ok && JSON.stringify(resourceFormValue(view)) === submitted) resetResourceForm(view);
+        view.resourceConflict = !response.ok && response.error?.code === 'revision_conflict';
+        text(view.resourceSave, view.resourceConflict ? '최신 기록에 리소스 저장' : '리소스 저장');
+        actionMessage(view.resourceMessage, response.ok ? '리소스를 저장했습니다.' : failure(response), !response.ok);
+        view.resourceSave.disabled = !canWrite(state.projection.tasks[taskId]);
+      });
+    });
+    view.resourceEditor.append(view.resourceForm); view.resourceSection.content.append(view.resourceEditor);
+  }
+  function resourceFormValue(view) {
+    const resource = {resource_id: view.resourceId || 'ui-resource-' + Date.now().toString(36) + '-' + (++state.sequence)};
+    for (const key of ['kind', 'label', 'target', 'open_mode']) resource[key] = view.resourceInputs[key].value;
+    resource.evidence = view.resourceEvidenceValues || []; return resource;
+  }
+  function resetResourceForm(view) {
+    view.resourceId = null; view.resourceRevision = null; view.resourceDirty = false; view.resourceConflict = false; view.resourceEvidenceValues = [];
+    for (const [key, input] of Object.entries(view.resourceInputs)) input.value = key === 'kind' ? 'other' : key === 'open_mode' ? 'url' : '';
+    text(view.resourceEvidence, ''); text(view.resourceSave, '리소스 저장'); actionMessage(view.resourceMessage, '');
+  }
+  function editResource(view, taskId, resource) {
+    view.resourceEditor.open = true;
+    if (view.resourceDirty || view.resourcePending) { actionMessage(view.resourceMessage, '작성 중인 리소스를 먼저 저장하거나 입력을 취소하세요.', true); view.resourceInputs.label.focus(); return; }
+    view.resourceId = resource.resource_id; view.resourceRevision = state.projection.tasks[taskId]?.displayed_revision;
+    view.resourceEvidenceValues = resource.evidence || []; view.resourceDirty = true; view.resourceConflict = false;
+    for (const key of ['kind', 'label', 'target', 'open_mode']) view.resourceInputs[key].value = resource[key];
+    text(view.resourceEvidence, view.resourceEvidenceValues.length ? '연결된 근거 ' + view.resourceEvidenceValues.length + '개를 함께 보존합니다.' : '');
+    text(view.resourceSave, '리소스 저장'); actionMessage(view.resourceMessage, ''); view.resourceInputs.label.focus();
+  }
+  function renderResources(view, task) {
+    const taskId = task.task_id; const resources = task.metadata?.resources || [];
+    const candidates = (task.resource_candidate_ids || []).map(id => state.projection.resource_candidates?.[id]).filter(Boolean);
+    const legacy = task.metadata?.legacy?.resources || [];
+    for (const resource of resources) {
+      let card = view.resourceCards.get(resource.resource_id);
+      if (!card) {
+        card = {root: node('article', 'panel resource-card'), pending: false}; const heading = node('div', 'item-heading'); card.title = node('strong'); heading.append(card.title); card.root.append(heading);
+        card.target = node('div', 'resource-target'); card.root.append(card.target);
+        const actions = node('div', 'button-row'); card.open = node('button', 'action-button', '열기 ↗'); card.copy = node('button', 'action-button', '복사'); card.edit = node('button', 'action-button', '수정'); card.archive = node('button', 'action-button'); actions.append(card.open, card.copy, card.edit, card.archive); card.root.append(actions);
+        card.source = node('p', 'item-provenance'); card.root.append(card.source);
+        card.evidence = node('details', 'item-details'); card.evidence.append(node('summary', '', '등록 근거')); card.evidenceText = node('pre'); card.evidence.append(card.evidenceText); card.root.append(card.evidence);
+        card.message = node('p', 'action-message'); card.message.setAttribute('role', 'status'); card.root.append(card.message);
+        const current = () => state.projection.tasks[taskId]?.metadata?.resources?.find(entry => entry.resource_id === resource.resource_id);
+        const activate = action => { if (card.pending || !current()) return; card.pending = true; card.open.disabled = true; card.copy.disabled = true; request(action, taskId, {resource_id: resource.resource_id}, response => { card.pending = false; actionMessage(card.message, response.ok ? action === 'resource_copy' ? '복사했습니다.' : '기본 앱에서 열었습니다.' : (action === 'resource_copy' ? '복사하지 못했습니다. ' : '링크를 열지 못했습니다. 복사를 사용할 수 있습니다. ') + failure(response), !response.ok); card.open.disabled = Boolean(state.projection.read_only); card.copy.disabled = Boolean(state.projection.read_only); }); };
+        card.open.addEventListener('click', () => activate(current()?.open_mode === 'copy' ? 'resource_copy' : 'resource_open'));
+        card.copy.addEventListener('click', () => activate('resource_copy'));
+        card.edit.addEventListener('click', () => { const value = current(); if (value && canWrite(state.projection.tasks[taskId])) editResource(view, taskId, value); });
+        card.archive.addEventListener('click', () => { const value = current(); const owner = state.projection.tasks[taskId]; if (!value || !canWrite(owner) || card.pending) return; card.pending = true; card.archive.disabled = true; request('resource_archive', taskId, {resource_id: resource.resource_id, archived: !value.archived, expected_revision: owner.displayed_revision}, response => { card.pending = false; actionMessage(card.message, response.ok ? '리소스 보관 설정을 저장했습니다.' : failure(response), !response.ok); card.archive.disabled = !canWrite(state.projection.tasks[taskId]); }); });
+        view.resourceCards.set(resource.resource_id, card);
+      }
+      text(card.title, resource.label); text(card.target, resource.target); text(card.open, resource.open_mode === 'file' ? '파일 열기 ↗' : '열기 ↗'); card.open.hidden = resource.open_mode === 'copy';
+      text(card.archive, resource.archived ? '복원' : '보관'); card.open.disabled = card.copy.disabled = card.pending || Boolean(state.projection.read_only);
+      card.edit.disabled = card.archive.disabled = card.pending || !canWrite(task);
+      text(card.source, actorName(resource.updated_by, state.projection) + ' · ' + timeLabel(resource.updated_at));
+      text(card.evidenceText, valueText(resource.evidence || [])); card.evidence.hidden = !resource.evidence?.length;
+      let parent = view.resourceArchivedList;
+      if (!resource.archived) {
+        if (!view.resourceGroups.has(resource.kind)) { const group = node('details', 'resource-group'); group.open = true; group.append(node('summary', '', RESOURCE_LABELS[resource.kind] || '기타')); const content = node('div'); group.append(content); view.resourceGroups.set(resource.kind, {root: group, content}); view.resourceList.append(group); }
+        parent = view.resourceGroups.get(resource.kind).content;
+      }
+      if (card.root.parentNode !== parent) parent.append(card.root);
+    }
+    const resourceIds = new Set(resources.map(resource => resource.resource_id));
+    for (const [id, card] of view.resourceCards) if (!resourceIds.has(id)) { card.root.remove(); view.resourceCards.delete(id); }
+    for (const group of view.resourceGroups.values()) group.root.hidden = !group.content.children.length;
+    view.resourceArchived.hidden = !resources.some(resource => resource.archived);
+    for (const candidate of candidates) {
+      let card = view.candidateCards.get(candidate.candidate_id);
+      if (!card) { card = {root: node('article', 'panel'), heading: node('strong'), target: node('pre'), evidence: node('pre'), add: node('button', 'action-button', '이 태스크에 등록')}; const disclosure = node('details', 'item-details'); disclosure.append(node('summary', '', '발견 근거'), card.evidence); card.root.append(card.heading, card.target, node('p', 'muted', '후보 · 태스크 소속 미확정'), card.add, disclosure); card.add.addEventListener('click', () => { const current = state.projection.resource_candidates[candidate.candidate_id]; if (current && canWrite(state.projection.tasks[taskId])) editResource(view, taskId, candidateDraft(current, 'ui-resource-' + Date.now().toString(36) + '-' + (++state.sequence))); }); view.candidateCards.set(candidate.candidate_id, card); view.candidateList.append(card.root); }
+      text(card.heading, RESOURCE_LABELS[candidateDraft(candidate, '').kind]); text(card.target, candidate.value); text(card.evidence, valueText(candidate.sources)); card.add.disabled = !canWrite(task);
+    }
+    const candidateIds = new Set(candidates.map(candidate => candidate.candidate_id));
+    for (const [id, card] of view.candidateCards) if (!candidateIds.has(id)) { card.root.remove(); view.candidateCards.delete(id); }
+    view.candidates.hidden = !candidates.length; text(view.candidateSummary, '발견된 후보 ' + candidates.length + '개');
+    const legacySignature = JSON.stringify(legacy); if (view.legacyResourceSignature !== legacySignature) { view.legacyResourceSignature = legacySignature; view.legacyResourceList.replaceChildren(); for (const resource of legacy) { const card = node('div', 'panel'); card.append(node('strong', '', resource.kind), node('pre', '', resource.uri || valueText(resource)), node('p', 'muted', '이관 당시의 등록 정보')); view.legacyResourceList.append(card); } }
+    view.legacyResources.hidden = !legacy.length; view.resourceEmpty.hidden = Boolean(resources.length || candidates.length || legacy.length);
+    for (const input of Object.values(view.resourceInputs)) input.disabled = !canWrite(task);
+    view.resourceSave.disabled = view.resourcePending || !canWrite(task); view.resourceCancel.disabled = view.resourcePending;
+  }
   function createTaskView(taskId) {
     const view = {root: node('div'), scroll: 0, items: new Map(), sessions: new Map(), history: [], historyLoaded: false, historyMore: true, historyBefore: null, historyPending: false, notePending: false, draftRevision: null, noteConflict: false};
     view.notice = node('p', 'panel'); view.root.append(view.notice);
     view.report = node('p', 'muted'); view.root.append(view.report);
     view.roles = node('div'); view.root.append(view.roles);
     view.resourceSection = section(view.root, '작업 리소스');
+    createResourceView(view, taskId);
     view.itemSection = section(view.root, '추적 항목');
     view.sessionSection = section(view.root, '연결 세션');
     view.noteSection = section(view.root, '메모');
@@ -353,21 +475,7 @@
         }
       }
     }
-    const candidates = (task.resource_candidate_ids || []).map(id => state.projection.resource_candidates?.[id]).filter(Boolean);
-    const legacyResources = task.metadata?.legacy?.resources || [];
-    const resourceSignature = JSON.stringify([candidates, legacyResources]);
-    if (view.resourceSignature !== resourceSignature) {
-      view.resourceSignature = resourceSignature; view.resourceSection.content.replaceChildren();
-      for (const resource of candidates) {
-        const card = node('details', 'panel'); card.append(node('summary', '', resource.kind + ' · 후보'), node('pre', '', resource.value));
-        for (const source of resource.sources || []) card.append(node('p', 'item-provenance', actorName({kind: 'session', session_id: source.session_id}, state.projection) + ' · ' + source.source_ref + ' · 노드 ' + source.node_id));
-        card.append(node('p', 'muted', '연결된 세션에서 발견 · 태스크 소속 미확정')); view.resourceSection.content.append(card);
-      }
-      for (const resource of legacyResources) {
-        const card = node('details', 'panel'); card.append(node('summary', '', resource.kind + ' · 이전 등록 기록'), node('pre', '', resource.uri || valueText(resource)), node('p', 'muted', '이관 당시의 등록 정보')); view.resourceSection.content.append(card);
-      }
-      if (!candidates.length && !legacyResources.length) view.resourceSection.content.append(node('p', 'muted', '아직 연결된 리소스가 없습니다.'));
-    }
+    renderResources(view, task);
     text(view.itemSection.heading, '추적 항목 ' + task.item_ids.length + '개');
     const activeIds = new Set(task.item_ids);
     task.item_ids.forEach((id, index) => { const item = state.projection.items[taskId]?.[id]; if (!item) return; const card = itemCard(view, taskId, item); if (view.itemSection.content.children[index] !== card) view.itemSection.content.insertBefore(card, view.itemSection.content.children[index] || null); });

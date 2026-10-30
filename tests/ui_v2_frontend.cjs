@@ -47,11 +47,22 @@ const historyOld = {revision: 1, title: 'T', items: [{item_id: 'x', title: 'Valu
 const historyNew = {revision: 2, title: 'T', items: [{item_id: 'x', title: 'Value', value: 'new', pinned: true}], notes: [{note_id: 'n', text: 'human note'}]};
 assert.deepEqual(ui.historyChanges(historyNew, historyOld).map(change => [change.field, change.before, change.after]), [['value', 'old', 'new'], ['추가', null, 'human note']]);
 assert.equal(ui.historyChanges(historyOld, null), null);
+const candidate = {candidate_id: 'candidate-one', kind: 'pr', value: 'https://github.com/example/demo/pull/42', sources: [
+  {session_id: 'session-a', source_ref: 'mentions-v2', node_id: 1, source_hash: 'a'.repeat(64), workspace: '/synthetic', verification: 'mentioned'},
+  {session_id: 'session-a', source_ref: 'mentions-v2', node_id: 2, source_hash: 'b'.repeat(64), workspace: '/synthetic', verification: 'mentioned'}
+]};
+const candidateResource = ui.candidateDraft(candidate, 'resource-core');
+assert.equal(candidateResource.kind, 'pr');
+assert.equal(candidateResource.evidence.length, 2);
+assert.equal(JSON.parse(candidateResource.evidence[1].reference).node_id, 2);
+assert.equal(ui.candidateDraft({...candidate, kind: 'repo'}, 'r').kind, 'repository');
+assert.equal(ui.candidateDraft({...candidate, kind: 'branch', value: 'main'}, 'r').open_mode, 'copy');
+assert.equal(ui.candidateDraft({...candidate, kind: 'worktree', value: '/synthetic'}, 'r').open_mode, 'copy');
 
 // Cross the actual Python schema/core/projection boundary, not a hand-shaped UI contract.
 const {execFileSync} = require('node:child_process');
 const actual = JSON.parse(execFileSync(process.env.PYTHON || 'python3', ['-c', `
-import json, tempfile
+import json, tempfile, sys
 from observer.cooperative import CooperativeState
 from observer.ui_projection import project
 with tempfile.TemporaryDirectory() as root:
@@ -67,11 +78,14 @@ with tempfile.TemporaryDirectory() as root:
         {'op': 'define', 'item_id': 'closed', 'title': 'Already answered', 'value': 'Keep as history',
          'status': 'completed', 'evidence': [], 'role': 'intervention', 'attention_required': False}
       ]}})
+    core.resource_put('ui-test', json.load(sys.stdin), 3)
     print(json.dumps(project(core.list())))
-`], {cwd: path.join(__dirname, '..'), encoding: 'utf8'}));
+`], {cwd: path.join(__dirname, '..'), encoding: 'utf8', input: JSON.stringify(candidateResource)}));
 assert.equal(ui.taskRows(actual)[0].attention, true);
 assert.equal(ui.filterRows(ui.taskRows(actual), '', 'attention').length, 1);
 assert.deepEqual(ui.roleGroups(actual, 'ui-test').map(group => [group.role, group.items.map(item => item.item_id)]), [['intervention', ['ask']]]);
+assert.deepEqual(actual.tasks['ui-test'].metadata.resources[0].evidence, candidateResource.evidence);
+assert.equal(actual.tasks['ui-test'].metadata.resources[0].external_status, 'unknown');
 
 // A small DOM harness exercises refresh and asynchronous action ownership.
 const vm = require('node:vm');
@@ -119,7 +133,7 @@ assert.equal(draft.value, 'unsaved note');
 assert.equal(document.activeElement, draft);
 assert.equal(disclosure.open, true);
 assert.equal(detail.scrollTop, 70);
-const form = walk(detail).find(element => element.tagName === 'FORM'); form.fire('submit');
+const form = walk(detail).find(element => element.tagName === 'FORM' && element.className.includes('note-form')); form.fire('submit');
 const noteRequest = sent.at(-1);
 assert.equal(noteRequest.action, 'note');
 assert.equal(noteRequest.expected_revision, 2);
@@ -167,6 +181,61 @@ window.Observer.actionResult({request_id: sent.at(-1).request_id, ok: true, resu
 assert.equal(historyLoad.hidden, true);
 assert.equal(latestHistory.hidden, false);
 assert.equal(ui.historyChanges(historyEntry(7), historyEntry(5)), null);
+runtime.tasks.a.metadata.resources = [JSON.parse(JSON.stringify(actual.tasks['ui-test'].metadata.resources[0]))];
+runtime.resource_candidates[candidate.candidate_id] = JSON.parse(JSON.stringify(candidate));
+runtime.tasks.a.resource_candidate_ids = [candidate.candidate_id];
+window.Observer.receive(runtime);
+const resourceCard = walk(detail).find(element => element.className.includes('resource-card'));
+const resourceOpen = walk(resourceCard).find(element => element.tagName === 'BUTTON' && element.textContent === '열기 ↗');
+const resourceCopy = walk(resourceCard).find(element => element.tagName === 'BUTTON' && element.textContent === '복사');
+resourceOpen.fire('click');
+assert.equal(sent.at(-1).action, 'resource_open');
+assert.equal(sent.at(-1).resource_id, 'resource-core');
+assert.equal(sent.at(-1).target, undefined);
+window.Observer.actionResult({request_id: sent.at(-1).request_id, ok: false, error: {code: 'open_failed', message: 'Synthetic app failure'}});
+assert.equal(resourceCopy.disabled, false);
+assert.ok(resourceCard.textContent.includes('복사를 사용할 수 있습니다'));
+resourceCopy.fire('click');
+assert.equal(sent.at(-1).action, 'resource_copy');
+const copyCount = sent.length;
+window.Observer.actionResult({request_id: sent.at(-1).request_id, ok: true, result: {copied: true}});
+assert.equal(sent.length, copyCount);
+const candidateRegister = walk(detail).find(element => element.tagName === 'BUTTON' && element.textContent === '이 태스크에 등록');
+const beforeCandidate = sent.length; candidateRegister.fire('click');
+assert.equal(sent.length, beforeCandidate);
+const resourceForm = walk(detail).find(element => element.className === 'resource-form');
+const resourceLabel = walk(resourceForm).find(element => element.attributes['aria-label'] === '리소스 표시 이름');
+const resourceTarget = walk(resourceForm).find(element => element.attributes['aria-label'] === '리소스 주소 또는 값');
+assert.equal(resourceTarget.value, candidate.value);
+resourceLabel.value = 'Review PR'; resourceLabel.fire('input');
+runtime.tasks.a.displayed_revision = 4; window.Observer.receive(runtime);
+assert.equal(resourceLabel.value, 'Review PR');
+resourceForm.fire('submit');
+assert.equal(sent.at(-1).action, 'resource_put');
+assert.equal(sent.at(-1).expected_revision, 3);
+assert.deepEqual(sent.at(-1).resource.evidence, candidateResource.evidence);
+window.Observer.actionResult({request_id: sent.at(-1).request_id, ok: false, error: {code: 'revision_conflict'}});
+assert.equal(resourceLabel.value, 'Review PR');
+resourceForm.fire('submit');
+assert.equal(sent.at(-1).expected_revision, 4);
+window.Observer.actionResult({request_id: sent.at(-1).request_id, ok: true, result: {}});
+assert.equal(resourceLabel.value, '');
+const resourceEdit = walk(resourceCard).find(element => element.tagName === 'BUTTON' && element.textContent === '수정');
+resourceEdit.fire('click'); const editLabel = resourceLabel.value;
+candidateRegister.fire('click');
+assert.equal(resourceLabel.value, editLabel);
+assert.ok(resourceForm.textContent.includes('먼저 저장하거나 입력을 취소'));
+const cancelResource = walk(resourceForm).find(element => element.tagName === 'BUTTON' && element.textContent === '입력 취소'); cancelResource.fire('click');
+const archiveResource = walk(resourceCard).find(element => element.tagName === 'BUTTON' && element.textContent === '보관');
+archiveResource.fire('click');
+assert.equal(sent.at(-1).action, 'resource_archive');
+assert.equal(sent.at(-1).archived, true);
+assert.equal(sent.at(-1).expected_revision, 4);
+window.Observer.actionResult({request_id: sent.at(-1).request_id, ok: true, result: {}});
+runtime.tasks.a.metadata.resources[0].archived = true; window.Observer.receive(runtime);
+assert.equal(archiveResource.textContent, '복원');
+archiveResource.fire('click');
+assert.equal(sent.at(-1).archived, false);
 runtime.read_only = true; window.Observer.receive(runtime);
 assert.equal(draft.disabled, true);
 assert.equal(window.Observer.receive({projection_version: 99}), false);

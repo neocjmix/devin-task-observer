@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Observer cooperative resource v1",
+  "type": "object",
+  "properties": {
+    "resource_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$"
+    },
+    "kind": {
+      "enum": [
+        "issue",
+        "document",
+        "environment",
+        "repository",
+        "branch",
+        "pr",
+        "communication",
+        "deliverable",
+        "other"
+      ]
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300
+    },
+    "target": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "open_mode": {
+      "enum": [
+        "url",
+        "file",
+        "copy"
+      ]
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^[^\\s/\\\\]+$"
+          },
+          "reference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "kind": {
+            "enum": [
+              "session_event",
+              "local_artifact",
+              "report"
+            ]
+          }
+        },
+        "required": [
+          "session_id",
+          "reference",
+          "kind"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 100
+    }
+  },
+  "required": [
+    "resource_id",
+    "kind",
+    "label",
+    "target",
+    "open_mode"
+  ],
+  "additionalProperties": false
+}

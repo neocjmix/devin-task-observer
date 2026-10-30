@@ -20,7 +20,7 @@ CAPABILITIES = {
     'task_observation_toggle': False,
     'task_read_cursor': False,
     'typed_item_roles': True,
-    'registered_resources': False,
+    'registered_resources': True,
     'session_tokens': False,
     'session_locator': False,
 }

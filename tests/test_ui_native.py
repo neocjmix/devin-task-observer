@@ -1,0 +1,34 @@
+import tempfile
+from pathlib import Path
+import unittest
+from observer.ui_native import checked_target, finish
+
+
+class NativeActionsTests(unittest.TestCase):
+    def test_protocols_and_commands_are_not_executed(self):
+        for target in ('javascript:alert(1)', 'file:///tmp/test.md', 'devin://acp?prompt=x',
+                       'https://user:secret@example.com/', 'https://example.com/a b', 'https://'):
+            with self.assertRaises(ValueError):
+                checked_target({'kind': 'url', 'target': target})
+        self.assertEqual(checked_target({'kind': 'url', 'target': 'https://example.com/path'}), ('url', 'https://example.com/path'))
+        self.assertEqual(checked_target({'kind': 'copy', 'target': 'feature/task'}), ('copy', 'feature/task'))
+
+    def test_files_are_explicit_existing_documents_and_missing_paths_are_visible(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ('deliverable.md', 'run.command', 'run.sh'):
+                (root / name).write_text('synthetic')
+            self.assertEqual(checked_target({'kind': 'file', 'target': str(root / 'deliverable.md')})[0], 'file')
+            for name in ('run.command', 'run.sh', 'missing.md'):
+                with self.assertRaises(ValueError):
+                    checked_target({'kind': 'file', 'target': str(root / name)})
+
+    def test_os_failure_is_not_reported_as_success(self):
+        dispatched = {'request_id': 'open', 'ok': True, 'result': {'native_action': {'kind': 'url', 'target': 'https://example.com'}}}
+        def fail(_):
+            raise ValueError('open failed')
+        result = finish(dispatched, fail)
+        self.assertFalse(result['ok'])
+        self.assertEqual(result['error']['code'], 'open_failed')
+        self.assertNotIn('native_action', result)
+        self.assertTrue(finish(dispatched, lambda _: {'opened': True})['result']['opened'])

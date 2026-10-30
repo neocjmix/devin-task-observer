@@ -176,6 +176,37 @@ class CooperativeState:
             value['notes'].append({'note_id': str(uuid.uuid4()), 'text': text, 'created_at': now()})
         return self._control(task_id, expected_revision, 'note', {'text': text}, change, request_id)
 
+    def resource_put(self, task_id, resource, expected_revision, request_id=None):
+        """Explicit human registration; never auto-adopt observed candidates."""
+        checked(resource, 'resource')
+        supplied = copy.deepcopy(resource)
+        def change(value):
+            resources = value.setdefault('resources', [])
+            existing = next((r for r in resources if r['resource_id'] == supplied['resource_id']), None)
+            if existing is None:
+                existing = {'resource_id': supplied['resource_id'], 'evidence': [],
+                            'archived': False, 'created_by': HUMAN.copy(),
+                            'created_at': value['updated_at']}
+                resources.append(existing)
+            # An older or partial editor omitting evidence must not erase sources.
+            existing.update(copy.deepcopy(supplied))
+            existing.update(updated_by=HUMAN.copy(), updated_at=value['updated_at'],
+                            external_status='unknown')
+        return self._control(task_id, expected_revision, 'resource_put',
+                             {'resource': supplied}, change, request_id)
+
+    def resource_archive(self, task_id, resource_id, archived, expected_revision, request_id=None):
+        _validate(resource_id, ID)
+        if type(archived) is not bool:
+            raise StateError('validation_error', 'archived must be boolean')
+        def change(value):
+            resource = next((r for r in value.get('resources', []) if r['resource_id'] == resource_id), None)
+            if resource is None:
+                raise StateError('resource_not_found', 'registered resource not found', {'resource_id': resource_id})
+            resource.update(archived=archived, updated_by=HUMAN.copy(), updated_at=value['updated_at'])
+        return self._control(task_id, expected_revision, 'resource_archive',
+                             {'resource_id': resource_id, 'archived': archived}, change, request_id)
+
     def export_edit(self, task_id):
         row = self.read(task_id)
         if row['health'] != 'ok':

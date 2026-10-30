@@ -391,6 +391,143 @@
         "archived_contributions"
       ],
       "additionalProperties": false
+    },
+    "resources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "resource_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$"
+          },
+          "kind": {
+            "enum": [
+              "issue",
+              "document",
+              "environment",
+              "repository",
+              "branch",
+              "pr",
+              "communication",
+              "deliverable",
+              "other"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "target": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "open_mode": {
+            "enum": [
+              "url",
+              "file",
+              "copy"
+            ]
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "session_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "pattern": "^[^\\s/\\\\]+$"
+                },
+                "reference": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                },
+                "kind": {
+                  "enum": [
+                    "session_event",
+                    "local_artifact",
+                    "report"
+                  ]
+                }
+              },
+              "required": [
+                "session_id",
+                "reference",
+                "kind"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 100
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "created_by": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "human"
+              },
+              "session_id": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "kind",
+              "session_id"
+            ],
+            "additionalProperties": false
+          },
+          "updated_by": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "human"
+              },
+              "session_id": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "kind",
+              "session_id"
+            ],
+            "additionalProperties": false
+          },
+          "created_at": {
+            "type": "string",
+            "maxLength": 16000
+          },
+          "updated_at": {
+            "type": "string",
+            "maxLength": 16000
+          },
+          "external_status": {
+            "const": "unknown"
+          }
+        },
+        "required": [
+          "resource_id",
+          "kind",
+          "label",
+          "target",
+          "open_mode",
+          "evidence",
+          "archived",
+          "created_by",
+          "updated_by",
+          "created_at",
+          "updated_at",
+          "external_status"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 1000
     }
   },
   "required": [

@@ -77,3 +77,22 @@ class UIActionTests(unittest.TestCase):
     def test_korean_note_limit_is_utf8_not_ascii_escape_size(self):
         result = response(self.root, self.request('note', expected_revision=1, text='가' * 12000))
         self.assertTrue(result['ok'], result)
+
+    def test_resource_actions_resolve_only_saved_task_scoped_targets(self):
+        resource = {'resource_id': 'pr', 'kind': 'pr', 'label': 'Pull Request',
+                    'target': 'https://github.com/example/demo/pull/42', 'open_mode': 'url'}
+        put = self.request('resource_put', expected_revision=1, resource=resource)
+        self.assertTrue(response(self.root, put)['ok'])
+        self.assertTrue(response(self.root, put)['result']['replayed'])
+        opened = response(self.root, self.request('resource_open', resource_id='pr'))
+        self.assertEqual(opened['result']['native_action'], {'kind': 'url', 'target': resource['target']})
+        copied = response(self.root, self.request('resource_copy', resource_id='pr'))
+        self.assertEqual(copied['result']['native_action']['kind'], 'copy')
+        malicious = self.request('resource_open', resource_id='pr', target='devin://acp?prompt=bad')
+        self.assertFalse(response(self.root, malicious)['ok'])
+        self.assertFalse(response(self.root, self.request('resource_open', resource_id='other'))['ok'])
+        archived = self.request('resource_archive', expected_revision=2, resource_id='pr', archived=True)
+        archived['request_id'] = 'archive'
+        self.assertTrue(response(self.root, archived)['ok'])
+        self.assertTrue(self.core.read('task')['state']['resources'][0]['archived'])
+        self.assertEqual(self.core.read('task')['state']['resources'][0]['external_status'], 'unknown')

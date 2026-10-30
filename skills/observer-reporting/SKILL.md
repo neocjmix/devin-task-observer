@@ -99,4 +99,12 @@ On `revision_conflict`, read the returned latest values and updater, reconsider 
 
 Agent reports cannot change pinned items, pins, human notes or the human View. Unpinned human-edited tracking values may receive a valid later report, with history preserved. Do not use `pin`, `edit-apply`, raw file editing, or replacement items to bypass protections. Human-only edits/recovery require an actual user editing request, not inferred authority from reporting being ON.
 
+Registered `state.resources` are human-managed links, distinct from resource
+candidates found in session observations. Read them for context, but do not add,
+rewrite or archive them as part of automatic reporting. `resource-put` and
+`resource-archive` require an explicit user editing request. Registration confirms
+the chosen task association only; `external_status: "unknown"` does not imply a
+PR is open/merged or that a URL/file is accessible. Legacy resource snapshots
+remain under `legacy.resources` and are not automatically promoted.
+
 On disabled reporting, missing identity, validation failure, file damage, lock timeout or repeated conflicts, keep the unsubmitted intent locally when useful and surface the failure briefly. Do not mark it as committed, silently repair raw state, busy-loop, or block the original Devin task. Ordinary collection remains independent. Resume reporting after the relevant condition is resolved and current state has been reread.

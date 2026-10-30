@@ -73,6 +73,17 @@ def parser():
     report = commands.add_parser('report')
     report.add_argument('--file', required=True)
     report.add_argument('--context', type=Path)
+    resource = commands.add_parser('resource-put', help='explicit human resource registration/update')
+    resource.add_argument('--task', required=True)
+    resource.add_argument('--file', required=True)
+    resource.add_argument('--expected-revision', type=int, required=True)
+    resource.add_argument('--request-id')
+    archive = commands.add_parser('resource-archive', help='archive/restore a registered resource without deleting history')
+    archive.add_argument('--task', required=True)
+    archive.add_argument('--resource', required=True)
+    archive.add_argument('--archived', choices=('on', 'off'), required=True)
+    archive.add_argument('--expected-revision', type=int, required=True)
+    archive.add_argument('--request-id')
     export = commands.add_parser('edit-export')
     export.add_argument('--task', required=True)
     export.add_argument('--out', type=Path, required=True)
@@ -81,10 +92,10 @@ def parser():
     apply.add_argument('--request-id')
     check = commands.add_parser('validate')
     check.add_argument('--file')
-    check.add_argument('--kind', choices=('task', 'report', 'edit', 'context'), default='task')
+    check.add_argument('--kind', choices=('task', 'report', 'edit', 'context', 'resource'), default='task')
     check.add_argument('--task')
     schema = commands.add_parser('schema')
-    schema.add_argument('--kind', choices=('task', 'report', 'edit', 'context'), required=True)
+    schema.add_argument('--kind', choices=('task', 'report', 'edit', 'context', 'resource'), required=True)
     register = commands.add_parser('session-register')
     register.add_argument('--session', required=True)
     register.add_argument('--out', type=Path, required=True)
@@ -135,6 +146,10 @@ def execute(args):
         return core.pin(args.task, args.item, args.pinned == 'on', args.expected_revision, args.request_id)
     if command == 'note':
         return core.note(args.task, args.text, args.expected_revision, args.request_id)
+    if command == 'resource-put':
+        return core.resource_put(args.task, load_json(args.file), args.expected_revision, args.request_id)
+    if command == 'resource-archive':
+        return core.resource_archive(args.task, args.resource, args.archived == 'on', args.expected_revision, args.request_id)
     if command == 'report':
         request = validate(load_json(args.file), 'report')
         if args.context:

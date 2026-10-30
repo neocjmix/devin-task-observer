@@ -3,7 +3,7 @@ import json
 
 from .cooperative import CooperativeState
 from .file_store import StateError
-from .state_schema import ID, _validate
+from .state_schema import ID, SID, _validate
 
 
 def dispatch(root, body):
@@ -15,11 +15,12 @@ def dispatch(root, body):
                'resource_put': {'resource'}, 'resource_archive': {'resource_id', 'archived'},
                'resource_open': {'resource_id'}, 'resource_copy': {'resource_id'},
                'lifecycle': {'completed'}, 'observation': {'enabled'},
-               'reporting': {'session_id', 'enabled'}}
+               'reporting': {'session_id', 'enabled'},
+               'session_copy': {'session_id'}, 'devin_activate': {'session_id'}}
     if action not in allowed:
         raise ValueError('unsupported UI action')
     keys = {'action', 'task_id', 'request_id'} | allowed[action]
-    if action not in ('history', 'resource_open', 'resource_copy'):
+    if action not in ('history', 'resource_open', 'resource_copy', 'session_copy', 'devin_activate'):
         keys.add('expected_revision')
     if set(body) - keys:
         raise ValueError('unexpected UI request fields')
@@ -27,6 +28,14 @@ def dispatch(root, body):
     _validate(body.get('request_id'), ID)
     core = CooperativeState(root)
     task_id, rid = body['task_id'], body['request_id']
+    if action in ('session_copy', 'devin_activate'):
+        sid = body.get('session_id')
+        _validate(sid, SID)
+        row = core.read(task_id)
+        state = row['state'] if row['health'] == 'ok' else row.get('last_good')
+        if not any(edge['session_id'] == sid for edge in (state or {}).get('contributions', [])):
+            raise StateError('session_not_linked', '태스크에 연결된 세션이 아닙니다.')
+        return {'native_action': {'kind': 'copy' if action == 'session_copy' else 'devin_existing', 'target': sid}}
     if action == 'history':
         limit, before = body.get('limit', 20), body.get('before_revision')
         if type(limit) is not int or not 1 <= limit <= 20:

@@ -118,3 +118,11 @@ class UIActionTests(unittest.TestCase):
         self.assertTrue(self.core.read('task')['state']['contributions'][0]['reporting'])
         self.assertFalse(self.core.read('second')['state']['contributions'][0]['reporting'])
         self.assertFalse(response(self.root, dict(request, request_id='stale', enabled=False))['ok'])
+
+    def test_session_fallback_never_returns_devin_url_or_opens_unlinked_session(self):
+        copied = response(self.root, self.request('session_copy', session_id='session-a'))
+        self.assertEqual(copied['result']['native_action'], {'kind': 'copy', 'target': 'session-a'})
+        activated = response(self.root, self.request('devin_activate', session_id='session-a'))
+        self.assertEqual(activated['result']['native_action']['kind'], 'devin_existing')
+        self.assertFalse(response(self.root, self.request('session_copy', session_id='unlinked'))['ok'])
+        self.assertFalse(response(self.root, self.request('session_copy', session_id='devin://acp'))['ok'])

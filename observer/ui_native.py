@@ -26,6 +26,10 @@ def checked_target(action):
 
 
 def perform(action):
+    if action.get('kind') == 'devin_existing':
+        from AppKit import NSRunningApplication, NSApplicationActivateIgnoringOtherApps
+        apps = NSRunningApplication.runningApplicationsWithBundleIdentifier_('com.exafunction.windsurf')
+        return activate_existing(apps, NSApplicationActivateIgnoringOtherApps)
     kind, target = checked_target(action)
     from AppKit import NSWorkspace, NSPasteboard, NSPasteboardTypeString
     from Foundation import NSURL
@@ -39,6 +43,18 @@ def perform(action):
     if url is None or not NSWorkspace.sharedWorkspace().openURL_(url):
         raise ValueError('링크를 열지 못했습니다. 주소를 복사해 이용하세요.')
     return {'opened': True}
+
+
+def activate_existing(applications, options):
+    """Activate an existing app only. Never URLs, launching, ACP or session load."""
+    matches = []
+    for application in applications:
+        url = application.bundleURL()
+        if url is not None and url.lastPathComponent() == 'Devin.app':
+            matches.append(application)
+    if len(matches) == 1 and matches[0].activateWithOptions_(options):
+        return {'activated': True}
+    raise ValueError('실행 중인 Devin Desktop으로 이동하지 못했습니다. 세션 ID를 복사해 이용하세요.')
 
 
 def finish(result, performer=None):

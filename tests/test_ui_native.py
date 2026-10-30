@@ -32,3 +32,21 @@ class NativeActionsTests(unittest.TestCase):
         self.assertEqual(result['error']['code'], 'open_failed')
         self.assertNotIn('native_action', result)
         self.assertTrue(finish(dispatched, lambda _: {'opened': True})['result']['opened'])
+
+    def test_activation_only_uses_an_already_running_devin_bundle(self):
+        from unittest.mock import Mock
+        from observer.ui_native import activate_existing
+        other, devin = Mock(), Mock()
+        other.bundleURL.return_value.lastPathComponent.return_value = 'Windsurf.app'
+        devin.bundleURL.return_value.lastPathComponent.return_value = 'Devin.app'
+        devin.activateWithOptions_.return_value = True
+        self.assertEqual(activate_existing([other, devin], 2), {'activated': True})
+        other.activateWithOptions_.assert_not_called()
+        devin.activateWithOptions_.assert_called_once_with(2)
+        with self.assertRaises(ValueError):
+            activate_existing([], 2)
+        with self.assertRaises(ValueError):
+            activate_existing([devin, devin], 2)
+        devin.activateWithOptions_.return_value = False
+        with self.assertRaises(ValueError):
+            activate_existing([devin], 2)

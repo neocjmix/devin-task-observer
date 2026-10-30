@@ -147,7 +147,7 @@
     if (!pending) return false;
     state.pending.delete(response.request_id);
     pending.onResult(response);
-    if (response.ok && !['history', 'resource_open', 'resource_copy'].includes(pending.action)) post('state_refresh');
+    if (response.ok && !['history', 'resource_open', 'resource_copy', 'session_copy', 'devin_activate'].includes(pending.action)) post('state_refresh');
     return true;
   }
   function actionMessage(element, message, error) { text(element, message); element.classList.toggle('error', Boolean(error)); }
@@ -558,6 +558,19 @@
       const part = node('div', 'fact'); const value = node('dd'); part.append(node('dt', '', title), value); facts.append(part); view.facts[key] = value;
     }
     view.root.append(facts);
+    view.resume = node('div', 'panel'); view.resume.append(node('p', 'muted', '세션 ID로 열린 Devin에서 찾을 수 있습니다.'));
+    const resumeActions = node('div', 'button-row'); view.copyId = node('button', 'action-button', 'ID 복사'); view.activateDevin = node('button', 'action-button', 'Devin Desktop으로 이동');
+    resumeActions.append(view.copyId, view.activateDevin); view.resume.append(resumeActions); view.resumeMessage = node('p', 'action-message'); view.resumeMessage.setAttribute('role', 'status'); view.resume.append(view.resumeMessage); view.root.append(view.resume);
+    const sessionAction = action => {
+      if (view.resumePending || state.projection.read_only) return;
+      const taskId = state.selected; view.resumePending = true; view.copyId.disabled = view.activateDevin.disabled = true;
+      request(action, taskId, {session_id: sessionId}, response => {
+        view.resumePending = false; view.copyId.disabled = view.activateDevin.disabled = Boolean(state.projection.read_only);
+        actionMessage(view.resumeMessage, response.ok ? action === 'session_copy' ? '세션 ID를 복사했습니다.' : '열린 Devin Desktop으로 이동했습니다.' : failure(response), !response.ok);
+      });
+    };
+    view.copyId.addEventListener('click', () => sessionAction('session_copy'));
+    view.activateDevin.addEventListener('click', () => sessionAction('devin_activate'));
     view.usage = node('details', 'panel usage-panel'); view.usage.append(node('summary', '', '토큰 사용량'));
     view.usageStatus = node('p', 'muted'); view.usage.append(view.usageStatus);
     view.usageGrid = node('dl', 'usage-grid'); view.metrics = {};
@@ -575,7 +588,9 @@
     text($('detail-title'), title + (client ? ' · ' + client : ''));
     if ($('detail-body').firstChild !== view.root) { $('detail-body').replaceChildren(view.root); $('detail-body').scrollTop = view.scroll; }
     view.notice.hidden = Boolean(session); text(view.notice, '이 세션의 관측 정보가 없습니다.');
+    for (const child of view.root.children) if (child !== view.notice) child.hidden = !session;
     if (!session) return;
+    view.copyId.disabled = view.activateDevin.disabled = view.resumePending || Boolean(state.projection.read_only);
     text(view.facts.id, session.session_id);
     const activity = sessionActivity(session);
     text(view.facts.activity, activity ? absoluteTime(activity.at) + ' · ' + activity.source + (activity.stale ? ' · 마지막 확인 기록' : '') : '정보 없음');
@@ -624,6 +639,7 @@
     text($('detail-title'), task?.metadata?.title || state.selected);
     const mounted = $('detail-body').firstChild === view.root;
     if (!mounted) { $('detail-body').replaceChildren(view.root); $('detail-body').scrollTop = view.scroll; }
+    for (const child of view.root.children) if (child !== view.notice) child.hidden = !task;
     if (!task) { text(view.notice, '현재 목록에서 이 태스크를 찾을 수 없습니다.'); view.notice.hidden = false; view.draft.disabled = true; view.submit.disabled = true; return; }
     renderTask(view, task);
   }

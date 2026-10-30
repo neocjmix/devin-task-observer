@@ -14,7 +14,7 @@ Vertical stack, 12pt padding:
 2. Compact counted filters: 활성, 확인 필요, 내가 할 일, 새 보고, 보관. Counts derive from stored state; unknown report/read positions remain unknown. Missing initial cursor means unread only when a valid report revision exists.
 3. Search and filters share the same task list; 확인 필요 means data integrity issues, 내가 할 일 means explicit intervention.
 4. Scrollable task list sorted explicit intervention first, then new report, then other tasks. No unsupported AI-generated urgency ranking.
-5. Footer “마지막 성공 수집 · HH:mm” and settings/diagnostic entry.
+5. Footer “마지막 성공 수집 · HH:mm”, 데이터 폴더 (configured Observer state root in Finder), diagnostic and quit controls.
 
 Task row (min ~76pt, variable for wrap): first line status icon + title, right side observation-off icon only if disabled. Second line one most useful short reported situation/intervention. Third line subdued “Devin #12 · 12분 전” (last changing session/time) plus short status if needed. One click opens detail. Do not show token, every URL, revision, evidence, or repeated caveat here. Multiple sessions on task must not make task row look like session list.
 Sample fixture:
@@ -33,7 +33,7 @@ C. “작업 리소스” grouped collapsible categories: 이슈, 문서·위키
 D. “추적 항목 N개”: each card title + status, value (1–3 lines with expand), footer last updated session and absolute/relative time. Disclosure: full value, evidence references, pinned flag, history, item ID/revision diagnostics. “고정” is protection, not proof. Free key/value items remain; recommended categories (not mandatory): 현재 상황, 사용자 개입 필요, 블로커, 다음 행동, 복귀 지점, 주요 결정, 검증 결과. Multiple blockers/decisions/results allowed.
 E. “연결 세션 N개”: session name, auto-report on/off, last activity, last report, direct session detail/open action. Multiple sessions per task.
 F. “메모·이력”: user notes preserved; editable only through validated existing/new safe write API. History by time with source/old/new values.
-G. “태스크 관리”: auto-observation toggle, complete/archive, restore. Place destructive/lifecycle actions in overflow or bottom, not primary action card.
+G. “태스크 관리”: auto-observation toggle, complete/archive, restore. Place destructive/lifecycle actions in overflow or bottom, not primary action card. A separate “상태 파일 보기” button reveals this task’s state.json in Finder even when the JSON is unhealthy; navigation does not mutate or recover state.
 Sample: auth task situation “통합 테스트 진행 중”, intervention “정책 A/B 결정”, blocker “테스트 계정 권한 부족”, next “권한 확보 후 재실행”, resume Devin #12, resource PR #142.
 
 ## Screen S: session detail

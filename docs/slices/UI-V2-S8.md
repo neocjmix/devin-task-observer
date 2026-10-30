@@ -74,3 +74,14 @@ python -m observer.desktop --config /new/isolated/path/config.json --root /new/i
 - 과거 태스크에 `last_report_revision`이 없으면 새 보고 개수는 미확인으로 표시한다. 다음 유효한 협조형 보고부터 명확해진다.
 - 앱은 이 checkout과 로컬 Python 환경에 의존하는 alias 실행기다. 영구 자동 실행은 설치하지 않았다. 이전 바이너리는 새 optional v1 필드가 채워진 상태를 검증하지 못하므로 상태를 지우지 말고 새 reader를 유지해야 한다.
 - 세션 보고의 의미 정확성·누락은 UI가 해결하지 않는다. 본 슬라이스는 보고된 내용과 출처를 보여주며 추가 LLM 분석을 하지 않는다.
+
+## 후속 회귀 수정 — 데이터 위치 이동 복원 (2026-10-31)
+
+사용자가 이전 메뉴의 데이터 위치 이동이 사라진 것을 발견했다. UI V2 전환 시 기존 `상태 폴더 열기`와 태스크별 `상태 파일 보기`를 빠뜨린 회귀였다.
+
+- 하단 **데이터 폴더**는 현재 설정된 Observer 상태 root를 Finder로 연다.
+- 태스크 상세 하단 **상태 파일 보기**는 `tasks/<task_id>/state.json`을 Finder에서 선택한다. 손상된 JSON도 파싱하지 않고 위치를 표시하며, 없는 파일은 오류를 안내한다.
+- 경로는 Python이 설정 root와 검증된 task ID로 결정한다. UI가 전달한 임의 경로·심볼릭 링크·경로 이탈은 거절한다. 탐색 때문에 상태 복구·폴더 생성·revision 증가·불필요한 수집을 하지 않는다.
+- 관련 Python 25개 통과(`test_ui_actions`, `test_ui_native`, `test_popover`), JS 구문·전체 UI V2 DOM 회귀 통과. 전체 Python 스위트는 이 작은 수정에서 다시 실행하지 않았다.
+- 실제 설치 앱에서 기존 개인 합성 데이터 폴더 열기를 확인했다. 별도 네이티브 합성 UI에서 `state.json`이 Finder에서 선택된 것을 확인했다. 설치 앱을 새 코드로 재실행했고 원본 파일은 변경하지 않았다.
+- 로컬 증거: 위 evidence 디렉토리의 `state-file-reveal.png`. 손상 파일·누락 파일·미리보기 차단·임의 경로 거절·늦은 응답과 입력 보존은 자동 회귀로 검증했다.

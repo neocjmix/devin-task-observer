@@ -45,7 +45,6 @@ UI V2 로드맵의 별도 S0~S8에는 `UI-V2-S0`~`UI-V2-S8` ID를 사용한다.
 | [M3-S03](slices/M3-S03.md) | 기존 SQLite 태스크·View 보존 이관·복원·일상 실행 | 구현 완료: 합성 보존·백업·복원 및 실제 CLI 검증; 기존 사용자 DB 자동 전환 없음 |
 | [M3-S04](slices/M3-S04.md) | 메뉴 깊이 축소·제품 문구·작은 그래픽 요소 | UI 구현·관련 테스트 통과; 실제 메뉴 검증 결과는 슬라이스 기록 참조 |
 | [UI-V2-S0](slices/UI-V2-S0.md) | 읽기 전용 데이터 투영·합성 fixture·현재 화면 요구와의 차이 | S0 19개 통과; 전체 292개 실행·290 통과·실제 모델 2 skip. S0 당시 S1 이후 UI 미구현 |
-
 | [UI-V2-S1](slices/UI-V2-S1.md) | Python + WKWebView 팝오버·홈·검색·건강 상태 | 관련 Python 40 통과, JS 18 assertions, 실제 Mac 표시·검색·복귀 확인 |
 | [UI-V2-S2](slices/UI-V2-S2.md) | 태스크 상세·역할·메모·고정·이력 | 관련 Python 59 통과, JS 경계·DOM 회귀 통과, 실제 Mac 메모 저장·이력 확인 |
 | [UI-V2-S3](slices/UI-V2-S3.md) | 영속 리소스·후보 등록·열기·복사 | 관련 Python 55 통과, JS 회귀, 실제 Mac 등록·복사 확인 |

@@ -134,7 +134,7 @@
   if (!root.document) return;
 
   const document = root.document;
-  const state = {projection: null, query: '', filter: 'all', selected: null, session: null, homeScroll: 0, tasks: new Map(), sessions: new Map(), pending: new Map(), sequence: 0};
+  const state = {projection: null, query: '', filter: 'all', selected: null, session: null, homeScroll: 0, tasks: new Map(), sessions: new Map(), pending: new Map(), sequence: 0, folderPending: false};
   const $ = id => document.getElementById(id);
   function text(node, value) { const next = value == null ? '' : String(value); if (node.textContent !== next) node.textContent = next; }
   function post(action, payload) {
@@ -153,7 +153,7 @@
   function request(action, taskId, payload, onResult) {
     const requestId = 'ui-' + Date.now().toString(36) + '-' + (++state.sequence);
     state.pending.set(requestId, {action, taskId, onResult});
-    post(action, Object.assign({request_id: requestId, task_id: taskId}, payload || {}));
+    post(action, Object.assign({request_id: requestId}, taskId == null ? {} : {task_id: taskId}, payload || {}));
     return requestId;
   }
   function actionResult(response) {
@@ -161,7 +161,7 @@
     if (!pending) return false;
     state.pending.delete(response.request_id);
     pending.onResult(response);
-    if (response.ok && !['history', 'resource_open', 'resource_copy', 'session_copy', 'devin_activate'].includes(pending.action)) post('state_refresh');
+    if (response.ok && !['history', 'resource_open', 'resource_copy', 'session_copy', 'devin_activate', 'state_folder', 'task_reveal'].includes(pending.action)) post('state_refresh');
     return true;
   }
   function actionMessage(element, message, error) { text(element, message); element.classList.toggle('error', Boolean(error)); }
@@ -463,6 +463,20 @@
     };
     view.observationButton.addEventListener('click', () => changeManagement('observation'));
     view.lifecycleButton.addEventListener('click', () => changeManagement('lifecycle'));
+    const files = node('div', 'panel');
+    view.revealButton = node('button', 'action-button', '상태 파일 보기');
+    view.revealButton.setAttribute('aria-label', '태스크 상태 파일을 Finder에서 보기');
+    view.revealMessage = node('p', 'action-message'); view.revealMessage.setAttribute('role', 'status');
+    files.append(view.revealButton, view.revealMessage); view.root.append(files);
+    view.revealButton.addEventListener('click', () => {
+      if (state.projection.read_only || view.revealPending || !state.projection.tasks[taskId]) return;
+      view.revealPending = true; view.revealButton.disabled = true;
+      actionMessage(view.revealMessage, 'Finder에서 파일 위치를 여는 중…');
+      request('task_reveal', taskId, {}, response => {
+        view.revealPending = false; view.revealButton.disabled = Boolean(state.projection.read_only);
+        actionMessage(view.revealMessage, response.ok ? 'Finder에 파일 위치 보기를 요청했습니다.' : failure(response), !response.ok);
+      });
+    });
     state.tasks.set(taskId, view); return view;
   }
   function historyGapCursor(entries) {
@@ -577,6 +591,7 @@
     text(view.markdownText, task.metadata?.view?.markdown || ''); view.markdown.hidden = !task.metadata?.view?.markdown;
     view.historyButton.disabled = view.historyPending || Boolean(state.projection.read_only);
     view.historyRefresh.disabled = view.historyPending || Boolean(state.projection.read_only);
+    view.revealButton.disabled = view.revealPending || Boolean(state.projection.read_only);
     if (state.projection.read_only && !view.historyLoaded) actionMessage(view.historyMessage, '미리보기에서는 저장 이력을 불러오지 않습니다.');
     const settings = management(task); const completed = settings.lifecycle === 'completed';
     view.managementSection.heading.hidden = view.managementSection.content.hidden = !state.projection.capabilities?.task_lifecycle;
@@ -680,6 +695,7 @@
     renderTask(view, task);
   }
   function render() {
+    $('state-folder').disabled = state.folderPending || Boolean(state.projection.read_only);
     const health = collectionHealth(state.projection);
     text($('health'), health.label); $('health').classList.toggle('warning', health.warning);
     $('diagnostics').hidden = !health.diagnostics.length && !$('diagnostics').open;
@@ -706,6 +722,15 @@
     $('search').addEventListener('input', event => { state.query = event.target.value; renderHome(); });
     ['all', 'errors', 'attention', 'new', 'archive'].forEach(filter => $('filter-' + filter).addEventListener('click', () => { state.filter = filter; renderHome(); }));
     $('refresh').addEventListener('click', () => post('refresh'));
+    $('state-folder').addEventListener('click', () => {
+      if (!state.projection || state.projection.read_only || state.folderPending) return;
+      state.folderPending = true; $('state-folder').disabled = true; $('location-message').hidden = false;
+      actionMessage($('location-message'), '데이터 폴더를 여는 중…');
+      request('state_folder', null, {}, response => {
+        state.folderPending = false; $('state-folder').disabled = Boolean(state.projection.read_only);
+        actionMessage($('location-message'), response.ok ? '데이터 폴더를 열었습니다.' : failure(response), !response.ok);
+      });
+    });
     $('show-diagnostics').addEventListener('click', () => { $('diagnostics').open = !$('diagnostics').open; if (state.projection) render(); else { $('diagnostics').hidden = !$('diagnostics').open; text($('diagnostic-text'), '아직 관측 정보를 받지 못했습니다.'); $('show-diagnostics').setAttribute('aria-expanded', String($('diagnostics').open)); } });
     $('diagnostics').addEventListener('toggle', () => { $('show-diagnostics').setAttribute('aria-expanded', String(Boolean($('diagnostics').open))); if (state.projection && !collectionHealth(state.projection).diagnostics.length) $('diagnostics').hidden = !$('diagnostics').open; });
     $('quit').addEventListener('click', () => post('quit'));

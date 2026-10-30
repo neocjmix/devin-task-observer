@@ -35,7 +35,8 @@
       <div class="detail-header"><button id="back" class="back-button" aria-label="태스크 목록으로 돌아가기">‹ 뒤로</button><h2 id="detail-title"></h2></div>
       <div id="detail-body" class="scroll"></div>
     </main>
-    <footer><span id="last-success">마지막 성공 수집 · 확인 중</span><div class="footer-actions"><button id="show-diagnostics" aria-label="관측 진단 보기" aria-controls="diagnostics" aria-expanded="false">진단</button><button id="quit" aria-label="Task Observer 종료">종료</button></div></footer>
+    <div id="location-message" class="action-message" role="status" hidden></div>
+    <footer><span id="last-success">마지막 성공 수집 · 확인 중</span><div class="footer-actions"><button id="state-folder" aria-label="데이터 폴더 열기" disabled>데이터 폴더</button><button id="show-diagnostics" aria-label="관측 진단 보기" aria-controls="diagnostics" aria-expanded="false">진단</button><button id="quit" aria-label="Task Observer 종료">종료</button></div></footer>
   </div>
 </body>
 </html>

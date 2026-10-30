@@ -9,6 +9,12 @@ def checked_target(action):
         raise ValueError('잘못된 리소스 주소입니다.')
     if kind == 'copy':
         return kind, target
+    if kind in ('directory', 'reveal'):
+        path = Path(target)
+        exists = path.is_dir() if kind == 'directory' else path.is_file()
+        if not path.is_absolute() or path.is_symlink() or not exists:
+            raise ValueError('데이터 위치를 찾을 수 없습니다. 파일이 이동되었는지 확인하세요.')
+        return kind, str(path)
     if kind == 'url':
         parsed = urlsplit(target)
         if parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username or parsed.password or any(c.isspace() for c in target):
@@ -39,7 +45,11 @@ def perform(action):
         if not clipboard.setString_forType_(target, NSPasteboardTypeString):
             raise ValueError('복사하지 못했습니다. 다시 시도하세요.')
         return {'copied': True}
-    url = NSURL.fileURLWithPath_(target) if kind == 'file' else NSURL.URLWithString_(target)
+    if kind == 'reveal':
+        if not NSWorkspace.sharedWorkspace().selectFile_inFileViewerRootedAtPath_(target, str(Path(target).parent)):
+            raise ValueError('Finder에서 상태 파일을 표시하지 못했습니다. 데이터 폴더에서 확인하세요.')
+        return {'revealed': True}
+    url = NSURL.fileURLWithPath_(target) if kind in ('file', 'directory') else NSURL.URLWithString_(target)
     if url is None or not NSWorkspace.sharedWorkspace().openURL_(url):
         raise ValueError('링크를 열지 못했습니다. 주소를 복사해 이용하세요.')
     return {'opened': True}

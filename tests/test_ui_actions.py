@@ -54,6 +54,43 @@ class UIActionTests(unittest.TestCase):
         self.assertEqual(result['error']['code'], 'read_only')
         self.assertEqual(self.core.read('task')['state']['notes'], [])
 
+    def test_data_navigation_uses_configured_paths_without_touching_broken_state(self):
+        path = self.root / 'tasks/task/state.json'
+        path.write_text('{broken')
+        before = {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
+        folder = response(self.root, {'action': 'state_folder', 'request_id': 'folder'})
+        self.assertEqual(folder['result']['native_action'], {'kind': 'directory', 'target': str(self.root)})
+        revealed = response(self.root, self.request('task_reveal'))
+        self.assertEqual(revealed['result']['native_action'], {'kind': 'reveal', 'target': str(path)})
+        self.assertEqual(before, {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob('*') if p.is_file()})
+        path.unlink()
+        self.assertEqual(response(self.root, self.request('task_reveal'))['error']['code'], 'state_file_missing')
+        self.assertFalse(path.exists())
+
+    def test_data_navigation_rejects_forged_paths_and_preview_without_creating_folders(self):
+        for command in (
+            self.request('task_reveal', path='/tmp/other.json'),
+            dict(self.request('task_reveal'), task_id='../other'),
+            dict(self.request('task_reveal'), task_id='unknown'),
+            self.request('state_folder'),  # global action does not take a task
+            {'action': 'state_folder', 'request_id': 'folder', 'target': '/tmp'},
+        ):
+            self.assertFalse(response(self.root, command)['ok'])
+        for command in (self.request('task_reveal'), {'action': 'state_folder', 'request_id': 'folder'}):
+            self.assertEqual(response(self.root, command, read_only=True)['error']['code'], 'read_only')
+        missing = self.root / 'absent'
+        self.assertFalse(response(missing, {'action': 'state_folder', 'request_id': 'folder'})['ok'])
+        self.assertFalse(missing.exists())
+
+    def test_data_navigation_rejects_state_symlinks(self):
+        path = self.root / 'tasks/task/state.json'
+        other = self.root / 'other.json'
+        other.write_text('untouched')
+        path.unlink()
+        path.symlink_to(other)
+        self.assertEqual(response(self.root, self.request('task_reveal'))['error']['code'], 'unsafe_path')
+        self.assertEqual(other.read_text(), 'untouched')
+
     def test_unhealthy_task_rejects_note_keeps_original_and_last_good(self):
         path = self.root / 'tasks/task/state.json'
         path.write_text('{broken')

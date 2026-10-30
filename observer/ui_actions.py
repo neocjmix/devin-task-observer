@@ -1,5 +1,6 @@
 """Small, explicit UI command boundary; all mutations use existing OCC core."""
 import json
+from pathlib import Path
 
 from .cooperative import CooperativeState
 from .file_store import StateError
@@ -10,6 +11,25 @@ def dispatch(root, body):
     if not isinstance(body, dict) or len(json.dumps(body, ensure_ascii=False, allow_nan=False).encode()) > 65536:
         raise ValueError('invalid or oversized UI request')
     action = body.get('action')
+    if action in ('state_folder', 'task_reveal'):
+        keys = {'action', 'request_id'} | ({'task_id'} if action == 'task_reveal' else set())
+        if set(body) != keys:
+            raise ValueError('unexpected or missing UI request fields')
+        _validate(body['request_id'], ID)
+        directory = Path(root).expanduser().absolute()
+        if directory.is_symlink() or not directory.is_dir():
+            raise StateError('state_folder_unavailable', '데이터 폴더를 찾을 수 없습니다.')
+        if action == 'state_folder':
+            return {'native_action': {'kind': 'directory', 'target': str(directory)}}
+        _validate(body['task_id'], ID)
+        path = directory / 'tasks' / body['task_id'] / 'state.json'
+        # Navigation must work for broken JSON without parsing, recovering or
+        # creating state. Targets come from the configured root, never JS paths.
+        if any(part.is_symlink() for part in (directory / 'tasks', path.parent, path)):
+            raise StateError('unsafe_path', '연결된 경로는 열 수 없습니다. 데이터 폴더에서 확인하세요.')
+        if not path.is_file():
+            raise StateError('state_file_missing', '상태 파일을 찾을 수 없습니다. 데이터 폴더에서 확인하세요.')
+        return {'native_action': {'kind': 'reveal', 'target': str(path)}}
     allowed = {'note': {'text'}, 'pin': {'item_id', 'pinned'},
                'history': {'limit', 'before_revision'},
                'resource_put': {'resource'}, 'resource_archive': {'resource_id', 'archived'},

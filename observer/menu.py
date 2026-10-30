@@ -68,121 +68,170 @@ def snapshot(root, config, runtime=None, config_path=None):
     return result
 
 
+def _status(value):
+    # Only familiar display labels are translated. Custom session states survive.
+    return {'completed': '완료', 'passed': '통과', 'pending': '대기',
+            'in_progress': '진행 중', 'blocked': '진행 막힘', 'failed': '실패'}.get(value, value)
+
+
+def _status_icon(value):
+    return {'completed': 'checkmark.circle', 'passed': 'checkmark.circle',
+            'in_progress': 'circle.lefthalf.filled', 'blocked': 'exclamationmark.circle',
+            'failed': 'exclamationmark.circle'}.get(value, 'circle')
+
+
+def _origin(item):
+    if item['updated_by'].get('kind') == 'human':
+        return '사용자 변경'
+    if item['verification'] == 'legacy_import':
+        return '가져온 기록'
+    return '세션 보고'
+
+
+def _session_row(contribution, task, observed):
+    sid = contribution['session_id']
+    reporting = '자동 보고 켜짐' if contribution['reporting'] else '자동 보고 꺼짐'
+    children = [{'title': reporting, 'style': 'heading'},
+                {'title': sid, 'style': 'caption'},
+                {'title': '최근 보고 ' + _time(contribution['last_report_at']), 'style': 'caption'}]
+    activity = task.get('session_activity', {}).get(sid, {})
+    if activity.get('health') == 'ok':
+        if activity.get('needs_context'):
+            children.append({'title': '⚠ 보고 지침 갱신 필요'})
+        children += [{'title': '최근 활동 ' + _time(activity.get('last_seen')), 'style': 'caption'},
+                     {'title': '연결 기록 · ' + _text(activity.get('last_event', 'unknown')), 'style': 'caption'}]
+    elif activity.get('health') == 'attention':
+        children.append({'title': '⚠ 세션 연결 확인 필요', 'caption': _text(activity.get('error'))})
+    facts = observed.get(sid)
+    if facts:
+        source_status = {'current': '관측 중', 'stale': '확인 필요'}.get(facts['status'], facts['status'])
+        children += [{'title': source_status + ' · 변경 ' + str(facts['observation_count']) + '건'},
+                     {'title': _text(facts['workspace']), 'style': 'caption'}, {'separator': True}]
+        for resource in facts['resource_mentions'][:15]:
+            children.append({'title': '후보 · ' + _text(resource['value'], 90), 'caption': '후보 · 상태 미확인',
+                             'kind': 'resource', 'icon': 'link', 'children': [
+                {'title': '후보 · 상태 미확인', 'style': 'heading'},
+                {'title': _text(resource['value'], 350)},
+                {'title': '태스크 연결 미확인'},
+                {'title': '근거 · ' + _text(resource['source_ref'])},
+                {'title': '분류 · ' + resource['kind'] + ' / ' + resource['verification'], 'style': 'caption'}]})
+        for index, plan in enumerate(facts['plan_snapshots'][:15], 1):
+            children.append({'title': '계획 기록 ' + str(index), 'icon': 'list.bullet', 'children': [
+                {'title': '세션 보고 · 순서·완료 미확인'},
+                {'title': _text(plan['items'], 350)},
+                {'title': '기록 ID · ' + str(plan['node_id']), 'style': 'caption'}]})
+        if len(facts['resource_mentions']) > 15 or len(facts['plan_snapshots']) > 15 or facts['resources_truncated'] or facts['plans_truncated']:
+            children.append({'title': '더 많은 기록은 CLI observations에서 확인', 'style': 'caption'})
+    else:
+        children.append({'title': '아직 관측되지 않은 세션', 'style': 'caption'})
+    children += [{'separator': True}, {'title': '중요한 변화가 있을 때 세션이 보고합니다.',
+                                        'caption': '보고를 켜도 쉬고 있는 세션을 깨우지는 않습니다.'}]
+    return {'kind': 'session', 'session_id': sid, 'title': _text(sid, 65) + ' · ' + reporting,
+            'icon': 'bubble.left' if contribution['reporting'] else 'pause.circle', 'children': children}
+
+
 def menu_model(value):
-    """Framework-independent rows are shared by tests, snapshots and the native menu."""
+    """Read-only, framework-independent presentation; no stored text is rewritten."""
     runtime = value['runtime']
     collector = runtime.get('collector') or {}
     error = collector.get('last_error')
     stale_count = runtime.get('refresh', {}).get('stale_sessions', 0)
-    troubled = bool(error or stale_count or value['errors'] or any(t['health'] != 'ok' for t in value['tasks']))
-    status = '수집 중' if runtime.get('running') else '수집기 정지'
-    if error:
-        status += ' · 확인 필요'
-    rows = [{'title': 'Observer · ' + status},
-            {'title': '마지막 성공 수집: ' + _time(collector.get('last_success'))}]
-    if error:
-        rows.append({'title': '수집 오류: ' + _text(error)})
-    if stale_count:
-        rows.append({'title': '원본 구조 확인 필요: ' + str(stale_count) + '개 세션'})
     observation = value.get('observations') or {}
+    troubled = bool(error or stale_count or value['errors'] or observation.get('warnings')
+                    or any(t['health'] != 'ok' for t in value['tasks']))
+    status = '관측 중' if runtime.get('running') else '관측 일시 중지'
+    rows = [{'title': ('⚠ ' + status + ' · 확인 필요' if troubled else '◉ ' + status), 'style': 'heading',
+             'caption': '최근 수집 ' + _time(collector.get('last_success'))}]
+    if error:
+        rows.append({'title': '수집을 다시 시도하고 있습니다.' if runtime.get('running') else '수집 확인 필요',
+                     'caption': _text(error)})
+    if stale_count:
+        rows.append({'title': '⚠ 확인이 필요한 세션 ' + str(stale_count) + '개'})
     for warning in observation.get('warnings', []):
-        rows.append({'title': '관측 경고: ' + _text(warning)})
-    observed = {session['id']: session for session in observation.get('sessions', [])}
-    rows.append({'title': '태스크 ' + str(len(value['tasks'])) + ' · 보고는 세션 판단 · 조회 0토큰'})
+        rows.append({'title': '⚠ 관측 기록을 확인해 주세요.', 'caption': _text(warning)})
     for problem in value['errors']:
-        rows.append({'title': '상태 오류: ' + _text(problem['message'])})
+        rows.append({'title': '⚠ ' + _text(problem['message'])})
+    rows += [{'separator': True}, {'title': '태스크 ' + str(len(value['tasks'])) + '개', 'style': 'section'}]
+    observed = {session['id']: session for session in observation.get('sessions', [])}
     for task in value['tasks'][:50]:
         state = task['state']
-        title = _text(state['title'] if state else task['task_id'], 75)
-        title += ' [' + task['task_id'] + ']'
+        title = _text(state['title'] if state else task['task_id'], 65)
         children = []
         if task['health'] != 'ok':
             title = '⚠ ' + title
-            children += [{'title': '파일 건강: ' + task['health']},
-                         {'title': '마지막 정상 커밋 표시 (현재 정상 상태가 아님)' if state else '표시 가능한 정상 커밋 없음'}]
-            children += [{'title': '오류: ' + _text(e)} for e in task['errors'][:5]]
+            children += [{'title': '파일 확인 필요', 'style': 'heading',
+                          'caption': '마지막 정상 기록 표시' if state else '표시할 정상 기록이 없습니다.'}]
+            children += [{'title': _text(e), 'style': 'caption'} for e in task['errors'][:5]]
+            children.append({'separator': True})
         if state:
-            children += [{'title': 'revision ' + str(state['revision']) + ' · ' + _time(state['updated_at'])}]
-            reports = []
-            for contribution in state['contributions']:
-                session_rows = [
-                    {'title': '능동보고 ' + ('ON' if contribution['reporting'] else 'OFF')},
-                    {'title': '마지막 보고: ' + _time(contribution['last_report_at'])},
-                    {'title': 'ON은 세션을 깨우거나 매 턴 보고를 보장하지 않음'}]
-                activity = task.get('session_activity', {}).get(contribution['session_id'], {})
-                if activity.get('health') == 'ok':
-                    session_rows += [{'title': '스킬 연결 활동: ' + _time(activity.get('last_seen'))},
-                                     {'title': '마지막 훅: ' + _text(activity.get('last_event', 'unknown'))},
-                                     {'title': '보고 지침 재전달 필요' if activity.get('needs_context') else '보고 지침 전달 기록 있음 · 이행 보장 아님'}]
-                elif activity.get('health') == 'attention':
-                    session_rows.append({'title': '스킬 연결 기록 확인 필요 · ' + _text(activity.get('error'))})
-                facts = observed.get(contribution['session_id'])
-                if facts:
-                    session_rows += [{'title': '원본 관측: ' + facts['status'] + ' · 변경 ' + str(facts['observation_count'])},
-                                     {'title': '작업 공간: ' + _text(facts['workspace'])}]
-                    for index, resource in enumerate(facts['resource_mentions'][:15], 1):
-                        session_rows.append({'title': '후보 ' + str(index) + ': ' + resource['kind'] + ' · ' + _text(resource['value']), 'children': [
-                            {'title': '검증: ' + resource['verification'] + ' · 외부 상태 unknown'},
-                            {'title': '근거: ' + _text(resource['source_ref'])},
-                            {'title': '태스크 소속을 자동 확정하지 않음'}]})
-                    for index, plan in enumerate(facts['plan_snapshots'][:15], 1):
-                        session_rows.append({'title': '계획 기록 ' + str(index) + ' · node ' + str(plan['node_id']), 'children': [
-                            {'title': '에이전트 보고 · 순서/완료 독립 검증 없음'},
-                            {'title': _text(plan['items'], 350)}]})
-                    if len(facts['resource_mentions']) > 15 or len(facts['plan_snapshots']) > 15 or facts['resources_truncated'] or facts['plans_truncated']:
-                        session_rows.append({'title': '추가 관측은 CLI observations로 조회'})
-                else:
-                    session_rows.append({'title': '허용 작업 공간에서 아직 관측되지 않은 세션'})
-                reports.append({'title': contribution['session_id'], 'children': session_rows})
-            children.append({'title': '참여 세션 · ' + str(len(reports)), 'children': reports or [{'title': '연결된 세션 없음'}]})
             active = [i for i in state['items'] if not i['archived']]
+            children.append({'title': '추적 항목 ' + str(len(active)) + '개', 'style': 'section'})
             for item in active[:50]:
-                item_rows = [{'title': '값: ' + _text(item['value'], 240)},
-                             {'title': '보고 상태: ' + _text(item['status'], 100)},
-                             {'title': '업데이트: ' + _actor(item['updated_by'])},
-                             {'title': '시각: ' + _time(item['updated_at'])},
-                             {'title': '명시적 고정: ' + ('ON' if item['pinned'] else 'OFF')},
-                             {'title': '검증: ' + ('이관 당시 기록' if item['verification'] == 'legacy_import' else '세션 보고 · 독립 검증 아님')}]
-                for index, evidence in enumerate(item['evidence'][:10], 1):
-                    item_rows.append({'title': '근거 ' + str(index) + ': ' + evidence['session_id'] + ' · ' + _text(evidence['reference'], 180)})
-                if len(item['evidence']) > 10:
-                    item_rows.append({'title': '나머지 근거는 상태 파일에서 확인'})
-                children.append({'title': ('📌 ' if item['pinned'] else '') + _text(item['title'], 70) + ' [' + item['item_id'] + '] · ' + _text(item['status'], 40), 'children': item_rows})
+                detail = [{'title': _text(item['value'], 500)},
+                          {'title': _origin(item) + ' · ' + _actor(item['updated_by']),
+                           'caption': _time(item['updated_at'])}]
+                if item['pinned']:
+                    detail.append({'title': '📌 고정됨 · 자동 변경되지 않습니다.'})
+                if item['evidence']:
+                    detail += [{'separator': True}, {'title': '근거', 'style': 'section'}]
+                    for evidence in item['evidence'][:10]:
+                        detail.append({'title': _text(evidence['reference'], 240), 'caption': evidence['session_id']})
+                    if len(item['evidence']) > 10:
+                        detail.append({'title': '추가 근거는 상태 파일에서 확인', 'style': 'caption'})
+                else:
+                    detail.append({'title': '첨부된 근거 없음', 'style': 'caption'})
+                detail += [{'separator': True}, {'title': '별도 검증되지 않은 보고입니다.', 'style': 'caption'},
+                           {'title': '항목 ID · ' + item['item_id'], 'style': 'caption'}]
+                children.append({'kind': 'item', 'item_id': item['item_id'],
+                                 'title': ('📌 ' if item['pinned'] else '') + _text(item['title'], 60) + ' · ' + _text(_status(item['status']), 40),
+                                 'icon': None if item['pinned'] else _status_icon(item['status']), 'children': detail})
+                children.append({'kind': 'item_summary', 'item_id': item['item_id'],
+                                 'title': _text(item['value'], 170),
+                                 'caption': _actor(item['updated_by']) + ' · ' + _time(item['updated_at']) + ' · ' + _origin(item)})
             if not active:
-                children.append({'title': '아직 보고된 추적 항목 없음'})
+                children.append({'title': '아직 보고된 항목이 없습니다.', 'style': 'caption'})
             if len(active) > 50:
-                children.append({'title': f'추적 항목 {len(active) - 50}개 더 있음 · 상태 파일에서 확인'})
+                children.append({'title': f'항목 {len(active) - 50}개 더 있음 · 상태 파일에서 확인', 'style': 'caption'})
             archived = len(state['items']) - len(active)
             if archived:
-                children.append({'title': '추적 종료 항목 ' + str(archived) + '개 · 이력 보존'})
-            if state['notes']:
-                children.append({'title': '사용자 메모', 'children': [
-                    {'title': str(index) + '. ' + _text(n['text'], 240)} for index, n in enumerate(state['notes'][:30], 1)]})
-            if state['view']['markdown']:
-                children.append({'title': 'Persistent View: ' + _text(state['view']['markdown'], 240)})
+                children.append({'title': '보관된 항목 ' + str(archived) + '개', 'style': 'caption'})
+            if state['notes'] or state['view']['markdown']:
+                children += [{'separator': True}, {'title': '메모', 'style': 'section'}]
+                children += [{'title': _text(n['text'], 240)} for n in state['notes'][:30]]
+                if len(state['notes']) > 30:
+                    children.append({'title': '추가 메모는 상태 파일에서 확인', 'style': 'caption'})
+                if state['view']['markdown']:
+                    children.append({'title': _text(state['view']['markdown'], 240)})
+            children += [{'separator': True}, {'title': '연결된 세션 ' + str(len(state['contributions'])) + '개', 'style': 'section'}]
+            children += [_session_row(c, task, observed) for c in state['contributions']]
+            if not state['contributions']:
+                children.append({'title': '연결된 세션이 없습니다.', 'style': 'caption'})
             legacy = state.get('legacy')
             if legacy:
-                imported = [{'title': '원래 설명: ' + _text(legacy.get('description') or '없음')},
-                            {'title': '원래 상태: ' + _text(legacy.get('lifecycle') or 'unknown')}]
-                view = legacy.get('view') or {}
-                sections = view.get('sections') or []
-                for section in sections[:30]:
-                    section_rows = [{'title': ('📌 ' if item.get('pinned') else '') + str(index) + '. ' + _text(item.get('content', ''), 240)}
-                                    for index, item in enumerate(section.get('items', [])[:50], 1)]
+                imported = [{'title': '가져온 기록 · 원본과 자동 동기화되지 않습니다.'},
+                            {'title': _text(legacy.get('description') or '설명 없음')},
+                            {'title': '당시 상태 · ' + _text(legacy.get('lifecycle') or '미확인')}]
+                for section in (legacy.get('view') or {}).get('sections', [])[:30]:
+                    section_rows = [{'title': ('📌 ' if i.get('pinned') else '') + _text(i.get('content', ''), 240)}
+                                    for i in section.get('items', [])[:50]]
                     if len(section.get('items', [])) > 50:
-                        section_rows.append({'title': '추가 항목은 상태 파일에 보존'})
-                    imported.append({'title': _text(section.get('title', 'View')) + ' [' + str(section.get('id', '')) + ']', 'children': section_rows or [{'title': '빈 섹션'}]})
-                for index, resource in enumerate(legacy.get('resources', [])[:30], 1):
-                    imported.append({'title': '리소스 ' + str(index) + ': ' + _text(resource, 220)})
-                imported.append({'title': '독립 확인 위치 ' + str(len(legacy.get('review_cursors', []))) + '개 보존'})
-                imported.append({'title': '이관 당시 스냅샷 · 이후 원본 DB와 자동 동기화하지 않음'})
-                children.append({'title': '기존 View·리소스 보존', 'children': imported})
-        children.append({'title': '상태 파일을 Finder에서 보기', 'action': 'reveal', 'task_id': task['task_id']})
-        rows.append({'title': title, 'children': children})
+                        section_rows.append({'title': '추가 항목은 상태 파일에 보존', 'style': 'caption'})
+                    imported.append({'title': _text(section.get('title', '메모')), 'children': section_rows or [{'title': '내용 없음'}]})
+                imported += [{'title': _text(r, 220)} for r in legacy.get('resources', [])[:30]]
+                imported.append({'title': '확인 위치 ' + str(len(legacy.get('review_cursors', []))) + '개 보존', 'style': 'caption'})
+                children.append({'title': '이전 기록', 'icon': 'archivebox', 'children': imported})
+        children += [{'separator': True}, {'title': '상태 파일 보기', 'action': 'reveal', 'task_id': task['task_id'], 'icon': 'doc.text'},
+                     {'title': '상세 정보', 'icon': 'info.circle', 'children': [
+                         {'title': '태스크 ID · ' + task['task_id']},
+                         {'title': '파일 상태 · ' + task['health']},
+                         {'title': '버전 ' + str(state['revision']) + ' · ' + _time(state['updated_at'])} if state else {'title': '상태를 읽을 수 없습니다.'},
+                         {'title': '세션 보고는 별도로 검증되지 않습니다.',
+                          'caption': '작성 세션과 근거를 함께 확인하세요.'}]}]
+        rows.append({'kind': 'task', 'task_id': task['task_id'], 'title': title, 'icon': 'square.stack', 'children': children})
     if len(value['tasks']) > 50:
-        rows.append({'title': '태스크 50개까지 표시 · 나머지는 CLI list로 조회'})
+        rows.append({'title': '태스크 50개 표시 · 나머지는 CLI list에서 확인', 'style': 'caption'})
     if not value['tasks'] and not value['errors']:
-        rows.append({'title': '아직 등록된 태스크 없음 · 보고 스킬로 태스크 연결'})
+        rows.append({'title': '아직 태스크가 없습니다.', 'caption': 'Devin 세션에서 보고 스킬로 태스크를 연결하세요.'})
     return {'title': '◉!' if troubled else '◉', 'rows': rows}
 
 
@@ -224,6 +273,65 @@ class MenuController:
             self._thread.join(timeout=3)
 
 
+def _native_label(row):
+    """Readable, non-interactive labels instead of disabled gray menu commands."""
+    from AppKit import (NSView, NSTextField, NSFont, NSColor, NSMakeRect,
+                        NSViewWidthSizable, NSLineBreakByWordWrapping)
+    width, inset = row.get('width', 430), 20
+    style = row.get('style')
+    fields = []
+    specs = [(row['title'], 11 if style in ('caption', 'section') else 12,
+              style in ('heading', 'section'), style in ('caption', 'section'),
+              2 if row.get('kind') == 'item_summary' else 4)]
+    if row.get('caption'):
+        specs.append((row['caption'], 10.5, False, True, 2))
+    for text, size, bold, secondary, lines in specs:
+        field = NSTextField.wrappingLabelWithString_(text)
+        field.setFont_(NSFont.boldSystemFontOfSize_(size) if bold else NSFont.systemFontOfSize_(size))
+        field.setTextColor_(NSColor.secondaryLabelColor() if secondary else NSColor.labelColor())
+        field.setMaximumNumberOfLines_(lines)
+        field.setLineBreakMode_(NSLineBreakByWordWrapping)
+        field.cell().setTruncatesLastVisibleLine_(True)
+        field.setToolTip_(text)
+        field.setAccessibilityLabel_(text)
+        field.setAutoresizingMask_(NSViewWidthSizable)
+        height = min(lines * 16, max(16, field.cell().cellSizeForBounds_(NSMakeRect(0, 0, width - 2 * inset, 1000)).height))
+        fields.append((field, height))
+    padding = 4 if style == 'section' else 6
+    height = sum(h for _, h in fields) + padding * 2 + (len(fields) - 1) * 3
+    view = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, width, height))
+    view.setAutoresizingMask_(NSViewWidthSizable)
+    y = height - padding
+    for field, field_height in fields:
+        y -= field_height
+        field.setFrame_(NSMakeRect(inset, y, width - 2 * inset, field_height))
+        view.addSubview_(field)
+        y -= 3
+    return view
+
+
+def _native_icon(item, name):
+    from AppKit import NSImage, NSMakeSize
+    if name:
+        icon = NSImage.imageWithSystemSymbolName_accessibilityDescription_(name, None)
+        if icon:
+            icon = icon.copy()
+            icon.setSize_(NSMakeSize(14, 14))
+            icon.setTemplate_(True)
+            item._menuitem.setImage_(icon)
+
+
+def _clear_native_menu(menu):
+    # rumps 0.4 retains every MenuItem in a callback registry, including labels.
+    # Release retired views/callbacks before rebuilding a closed menu.
+    from rumps.rumps import NSApp
+    for item in list(menu.values()):
+        if hasattr(item, 'values') and item:
+            _clear_native_menu(item)
+        NSApp._ns_to_py_and_callback.pop(item._menuitem, None)
+    menu.clear()
+
+
 def run_native(root, config, config_path=None):
     if sys.platform != 'darwin':
         raise ValueError('메뉴 막대 UI는 macOS에서만 실행합니다. collector와 CLI는 별도로 사용할 수 있습니다.')
@@ -231,13 +339,24 @@ def run_native(root, config, config_path=None):
         import rumps
     except ImportError:
         raise ValueError('메뉴 막대 의존성이 없습니다. scripts/setup_menu.py로 전용 환경을 설치한 뒤 그 환경의 Python으로 menu를 실행하세요.') from None
-    from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
+    from AppKit import NSApplication, NSApplicationActivationPolicyAccessory, NSObject
 
     runtime = CollectorRuntime(config)
     controller = MenuController(root, config, runtime, config_path=config_path)
     app = rumps.App('Devin Task Observer', title='◉', quit_button=None)
     previous = None
     stopped = threading.Event()
+
+    class ObserverMenuDelegate(NSObject):
+        def menuWillOpen_(self, menu):
+            self.opened = True
+
+        def menuDidClose_(self, menu):
+            self.opened = False
+
+    delegate = ObserverMenuDelegate.alloc().init()
+    delegate.opened = False
+    app.menu._menu.setDelegate_(delegate)
 
     def quit_app(_=None):
         stopped.set()
@@ -247,13 +366,19 @@ def run_native(root, config, config_path=None):
         runtime.stop()
         rumps.quit_application()
 
-    def make_item(row):
+    def make_item(row, depth=0):
+        if row.get('separator'):
+            return None
         item = rumps.MenuItem(row['title'])
         if row.get('action') == 'reveal':
             path = Path(root).absolute() / 'tasks' / row['task_id'] / 'state.json'
             item.set_callback(lambda _: subprocess.Popen(['/usr/bin/open', '-R', str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-        for child in row.get('children', []):
-            item.add(make_item(child))
+        for index, child in enumerate(row.get('children', [])):
+            # The display title is not an identity: tasks/items can share titles.
+            item[index] = make_item(child, depth + 1)
+        if not row.get('children') and not row.get('action'):
+            item._menuitem.setView_(_native_label({**row, 'width': 320 if depth == 0 else 430}))
+        _native_icon(item, row.get('icon'))
         return item
 
     def update(_):
@@ -261,17 +386,25 @@ def run_native(root, config, config_path=None):
         if stopped.is_set():
             quit_app()
             return
+        # Keep the selected path stable while reading. Apply the latest snapshot
+        # on a later timer tick after close, never from the NSMenu delegate.
+        if delegate.opened:
+            return
         value = controller.latest()
         if value is None or value == previous:
             return
         previous = value
         app.title = value['title']
-        app.menu.clear()
-        for row in value['rows']:
-            app.menu.add(make_item(row))
+        _clear_native_menu(app.menu)
+        for index, row in enumerate(value['rows']):
+            app.menu[index] = make_item(row)
         app.menu.add(None)
-        app.menu.add(rumps.MenuItem('지금 수집·상태 새로고침', callback=lambda _: controller.refresh()))
-        app.menu.add(rumps.MenuItem('상태 폴더 열기', callback=lambda _: subprocess.Popen(['/usr/bin/open', str(Path(root).absolute())], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)))
+        refresh = rumps.MenuItem('지금 새로고침', callback=lambda _: controller.refresh())
+        _native_icon(refresh, 'arrow.clockwise')
+        app.menu.add(refresh)
+        folder = rumps.MenuItem('상태 폴더 열기', callback=lambda _: subprocess.Popen(['/usr/bin/open', str(Path(root).absolute())], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+        _native_icon(folder, 'folder')
+        app.menu.add(folder)
         app.menu.add(rumps.MenuItem('Observer 종료', callback=quit_app))
 
     timer = rumps.Timer(update, 1)

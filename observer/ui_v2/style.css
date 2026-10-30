@@ -42,6 +42,11 @@ input[type="search"] { width: 100%; border: 1px solid var(--line); border-radius
 .task-warning { font-size: 11px; color: var(--warning); margin-top: 4px; }
 .empty { margin: 28px 10px; text-align: center; color: var(--muted); line-height: 1.5; }
 .detail-header { display: flex; align-items: center; gap: 10px; }
+#task-toolbar { flex: 0 0 auto; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.task-controls .button-row { align-items: center; justify-content: space-between; }
+.task-controls .observation-toggle::before { content: '●'; margin-right: 6px; font-size: 9px; color: var(--muted); }
+.task-controls .observation-toggle[aria-pressed="true"]::before { color: var(--accent); }
+.task-controls .action-message { margin: 6px 0 0; max-height: 72px; overflow: auto; overflow-wrap: anywhere; }
 .back-button { border-radius: 6px; white-space: nowrap; padding: 5px; font-size: 13px; color: var(--accent); }
 .panel { background: var(--card); border-radius: 12px; padding: 12px; margin-bottom: 8px; line-height: 1.5; overflow-wrap: anywhere; }
 .muted { color: var(--muted); font-size: 12px; }

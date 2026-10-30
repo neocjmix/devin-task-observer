@@ -186,6 +186,7 @@
     }
     $('home').hidden = false;
     $('detail').hidden = true;
+    $('task-toolbar').hidden = true;
     const selected = state.selected;
     state.selected = null;
     renderHome();
@@ -443,21 +444,21 @@
     view.historyButton.addEventListener('click', () => loadHistory(false));
     view.historyRefresh.addEventListener('click', () => loadHistory(true));
     view.historySection.content.append(view.historyButton, view.historyRefresh, view.historyMessage);
-    view.managementSection = section(view.root, '태스크 관리');
-    view.managementStatus = node('p', 'muted'); view.managementSection.content.append(view.managementStatus);
+    view.managementRoot = node('div', 'task-controls');
     view.managementButtons = node('div', 'button-row');
-    view.observationButton = node('button', 'action-button'); view.lifecycleButton = node('button', 'action-button');
-    view.managementButtons.append(view.observationButton, view.lifecycleButton); view.managementSection.content.append(view.managementButtons);
-    view.managementHelp = node('p', 'muted'); view.managementSection.content.append(view.managementHelp);
-    view.managementMessage = node('p', 'action-message'); view.managementMessage.setAttribute('role', 'status'); view.managementSection.content.append(view.managementMessage);
+    view.managementButtons.setAttribute('role', 'group'); view.managementButtons.setAttribute('aria-label', '태스크 관리');
+    view.observationButton = node('button', 'action-button observation-toggle'); view.lifecycleButton = node('button', 'action-button');
+    view.managementButtons.append(view.observationButton, view.lifecycleButton); view.managementRoot.append(view.managementButtons);
+    view.managementMessage = node('p', 'action-message'); view.managementMessage.setAttribute('role', 'status'); view.managementMessage.hidden = true; view.managementRoot.append(view.managementMessage);
     const changeManagement = action => {
-      const task = state.projection.tasks[taskId]; if (!canWrite(task) || view.managementPending) return;
+      const task = state.projection.tasks[taskId]; if (!canWrite(task) || view.managementPending || !state.projection.capabilities?.task_lifecycle) return;
       const value = management(task); const args = {expected_revision: task.displayed_revision};
       if (action === 'lifecycle') args.completed = value.lifecycle !== 'completed';
       else { if (value.lifecycle !== 'active') return; args.enabled = !value.observation_enabled; }
       view.managementPending = true; view.lifecycleButton.disabled = view.observationButton.disabled = true;
+      actionMessage(view.managementMessage, ''); view.managementMessage.hidden = true;
       request(action, taskId, args, response => {
-        view.managementPending = false; actionMessage(view.managementMessage, response.ok ? '태스크 설정을 저장했습니다.' : failure(response), !response.ok);
+        view.managementPending = false; actionMessage(view.managementMessage, response.ok ? '' : failure(response), !response.ok); view.managementMessage.hidden = Boolean(response.ok);
         view.lifecycleButton.disabled = view.observationButton.disabled = !canWrite(state.projection.tasks[taskId]);
       });
     };
@@ -594,12 +595,12 @@
     view.revealButton.disabled = view.revealPending || Boolean(state.projection.read_only);
     if (state.projection.read_only && !view.historyLoaded) actionMessage(view.historyMessage, '미리보기에서는 저장 이력을 불러오지 않습니다.');
     const settings = management(task); const completed = settings.lifecycle === 'completed';
-    view.managementSection.heading.hidden = view.managementSection.content.hidden = !state.projection.capabilities?.task_lifecycle;
-    text(view.managementStatus, completed ? '완료 · 보관됨' : '활성 · 자동 반영 ' + (settings.observation_enabled ? '켜짐' : '꺼짐'));
-    text(view.lifecycleButton, completed ? '활성으로 복원' : '완료하고 보관');
-    text(view.observationButton, settings.observation_enabled ? '자동 반영 끄기' : '자동 반영 켜기'); view.observationButton.hidden = completed;
+    text(view.lifecycleButton, completed ? '복원' : '완료');
+    view.lifecycleButton.setAttribute('aria-label', completed ? '태스크 활성으로 복원' : '태스크 완료하고 보관');
+    text(view.observationButton, settings.observation_enabled ? '자동 반영 켜짐' : '자동 반영 꺼짐'); view.observationButton.hidden = completed;
+    view.observationButton.setAttribute('aria-pressed', String(Boolean(settings.observation_enabled)));
+    view.observationButton.setAttribute('aria-label', settings.observation_enabled ? '태스크 자동 반영 끄기' : '태스크 자동 반영 켜기');
     view.lifecycleButton.disabled = view.observationButton.disabled = view.managementPending || !canWrite(task);
-    text(view.managementHelp, completed ? '복원하면 자동 반영이 ' + (settings.previous_observation_enabled ? '켜집니다.' : '꺼진 상태로 돌아갑니다.') : '자동 반영을 꺼도 공유 세션 관측과 저장된 기록은 유지됩니다.');
   }
   function createSessionView(sessionId) {
     const view = {root: node('div'), scroll: 0, edges: new Map()};
@@ -683,10 +684,12 @@
     for (const [id, card] of view.edges) if (!session.task_ids.includes(id)) { card.root.remove(); view.edges.delete(id); }
   }
   function renderDetail() {
-    if (!state.selected || !state.projection) return;
-    if (state.session) { renderSession(); return; }
+    if (!state.selected || !state.projection) { $('task-toolbar').hidden = true; return; }
+    if (state.session) { $('task-toolbar').hidden = true; renderSession(); return; }
     const task = state.projection.tasks[state.selected];
     const view = state.tasks.get(state.selected) || createTaskView(state.selected);
+    $('task-toolbar').hidden = !task || !state.projection.capabilities?.task_lifecycle;
+    if ($('task-toolbar').firstChild !== view.managementRoot) $('task-toolbar').replaceChildren(view.managementRoot);
     text($('detail-title'), task?.metadata?.title || state.selected);
     const mounted = $('detail-body').firstChild === view.root;
     if (!mounted) { $('detail-body').replaceChildren(view.root); $('detail-body').scrollTop = view.scroll; }

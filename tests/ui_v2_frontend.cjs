@@ -200,6 +200,7 @@ class Element {
 }
 function walk(element) { return element.children.flatMap(child => [child, ...walk(child)]); }
 const html = fs.readFileSync(path.join(__dirname, '../observer/ui_v2/index.html'), 'utf8');
+assert.match(html, /class="detail-header"[^]*?<\/div>\s*<div id="task-toolbar" hidden><\/div>\s*<div id="detail-body" class="scroll">/); // controls are outside the scrolling content
 for (const match of html.matchAll(/id="([^"]+)"/g)) ids.set(match[1], new Element());
 const documentEvents = {};
 document = {readyState: 'complete', activeElement: null, documentElement: {dataset: {}}, getElementById: id => ids.get(id), createElement: tag => new Element(tag), addEventListener(name, fn) { (documentEvents[name] ||= []).push(fn); }};
@@ -212,8 +213,15 @@ runtime.sessions.s.session_id = 's'; runtime.sessions.s.task_ids = ['a']; runtim
 for (const task of Object.values(runtime.tasks)) { task.session_ids = task.task_id === 'a' ? ['s'] : []; task.displayed_revision = 2; task.resource_candidate_ids = []; task.metadata.notes = []; task.metadata.view = {markdown: ''}; }
 assert.equal(window.Observer.receive(runtime), true);
 assert.equal(sent[0].action, 'ready');
+assert.equal(ids.get('task-toolbar').hidden, true);
 ids.get('task-list').children[0].fire('click');
 let detail = ids.get('detail-body');
+const toolbar = ids.get('task-toolbar');
+const controlsA = toolbar.firstChild;
+assert.equal(toolbar.hidden, false);
+assert.equal(controlsA.parentNode, toolbar);
+assert.equal(walk(detail).includes(controlsA), false);
+assert.equal(detail.textContent.includes('태스크 관리'), false);
 const draft = walk(detail).find(element => element.tagName === 'TEXTAREA');
 draft.value = 'unsaved note'; draft.fire('input'); draft.focus();
 const disclosure = walk(detail).find(element => element.className === 'item-details'); disclosure.open = true;
@@ -253,6 +261,7 @@ assert.equal(sent.length, beforeRevealResult); // opening a location never refre
 assert.equal(draft.value, 'edited after request');
 ids.get('back').fire('click'); ids.get('task-list').children.find(card => card.dataset.taskId === 'b').fire('click');
 runtime.capabilities.task_lifecycle = false; window.Observer.receive(runtime);
+assert.equal(toolbar.hidden, true);
 const revealB = walk(detail).find(element => element.tagName === 'BUTTON' && element.textContent === '상태 파일 보기');
 assert.equal(revealB.disabled, false);
 assert.equal(revealB.parentNode.hidden, false); // not inside a hidden lifecycle section
@@ -267,6 +276,7 @@ assert.ok(detail.textContent.includes('파일을 찾을 수 없습니다.'));
 assert.ok(walk(detail).some(element => element.attributes.role === 'status' && element.textContent === '파일을 찾을 수 없습니다.'));
 window.Observer.receive(runtime); assert.ok(detail.textContent.includes('파일을 찾을 수 없습니다.'));
 runtime.capabilities.task_lifecycle = true; window.Observer.receive(runtime);
+assert.equal(toolbar.hidden, false);
 ids.get('back').fire('click'); ids.get('task-list').children.find(card => card.dataset.taskId === 'a').fire('click');
 form.fire('submit'); const conflictRequest = sent.at(-1);
 window.Observer.actionResult({request_id: conflictRequest.request_id, ok: false, error: {code: 'revision_conflict'}});
@@ -357,17 +367,42 @@ runtime.tasks.a.metadata.resources[0].archived = true; window.Observer.receive(r
 assert.equal(archiveResource.textContent, '복원');
 archiveResource.fire('click');
 assert.equal(sent.at(-1).archived, false);
-const observationButton = walk(detail).find(element => element.tagName === 'BUTTON' && element.textContent === '자동 반영 끄기');
+const observationButton = walk(toolbar).find(element => element.tagName === 'BUTTON' && element.textContent === '자동 반영 켜짐');
+assert.equal(observationButton.attributes['aria-pressed'], 'true');
+assert.equal(observationButton.attributes['aria-label'], '태스크 자동 반영 끄기');
 observationButton.fire('click');
 assert.equal(sent.at(-1).action, 'observation');
 assert.equal(sent.at(-1).enabled, false);
 assert.equal(sent.at(-1).expected_revision, 4);
+const managementRequest = sent.at(-1);
+ids.get('back').fire('click');
+assert.equal(toolbar.hidden, true);
+ids.get('task-list').children.find(card => card.dataset.taskId === 'b').fire('click');
+const controlsB = toolbar.firstChild;
+assert.notEqual(controlsB, controlsA);
+window.Observer.actionResult({request_id: managementRequest.request_id, ok: false, error: {code: 'revision_conflict'}});
+assert.equal(toolbar.firstChild, controlsB);
+assert.equal(toolbar.textContent.includes('그사이 다른 업데이트'), false);
+assert.equal(walk(toolbar).find(element => element.attributes.role === 'status').hidden, true);
+ids.get('back').fire('click'); ids.get('task-list').children.find(card => card.dataset.taskId === 'a').fire('click');
+assert.equal(toolbar.firstChild, controlsA);
+assert.ok(toolbar.textContent.includes('그사이 다른 업데이트'));
+assert.equal(walk(toolbar).find(element => element.attributes.role === 'status').hidden, false);
+window.Observer.receive(runtime);
+assert.ok(toolbar.textContent.includes('그사이 다른 업데이트'));
+assert.equal(draft.value, 'edited after request');
+observationButton.fire('click');
+assert.equal(sent.at(-1).task_id, 'a'); assert.equal(sent.at(-1).expected_revision, 4);
 window.Observer.actionResult({request_id: sent.at(-1).request_id, ok: true, result: {}});
+assert.equal(walk(toolbar).find(element => element.attributes.role === 'status').hidden, true);
 runtime.tasks.a.management = coreBoundary.off.tasks['ui-test'].management; runtime.tasks.a.effective_observation_enabled = false; runtime.tasks.a.displayed_revision = 5;
 window.Observer.receive(runtime);
-assert.equal(observationButton.textContent, '자동 반영 켜기');
+assert.equal(observationButton.textContent, '자동 반영 꺼짐');
+assert.equal(observationButton.attributes['aria-pressed'], 'false');
+assert.equal(observationButton.attributes['aria-label'], '태스크 자동 반영 켜기');
 assert.ok(detail.textContent.includes('태스크 반영 중지'));
-const lifecycleButton = walk(detail).find(element => element.tagName === 'BUTTON' && element.textContent === '완료하고 보관');
+const lifecycleButton = walk(toolbar).find(element => element.tagName === 'BUTTON' && element.textContent === '완료');
+assert.equal(lifecycleButton.attributes['aria-label'], '태스크 완료하고 보관');
 lifecycleButton.fire('click');
 assert.equal(sent.at(-1).action, 'lifecycle');
 assert.equal(sent.at(-1).completed, true);
@@ -376,7 +411,8 @@ window.Observer.actionResult({request_id: sent.at(-1).request_id, ok: true, resu
 runtime.tasks.a.management = coreBoundary.completed.tasks['ui-test'].management; runtime.tasks.a.displayed_revision = 6;
 window.Observer.receive(runtime);
 assert.equal(observationButton.hidden, true);
-assert.equal(lifecycleButton.textContent, '활성으로 복원');
+assert.equal(lifecycleButton.textContent, '복원');
+assert.equal(lifecycleButton.attributes['aria-label'], '태스크 활성으로 복원');
 ids.get('back').fire('click');
 assert.equal(ids.get('task-list').children.some(card => card.dataset.taskId === 'a'), false);
 ids.get('filter-archive').fire('click');
@@ -387,7 +423,7 @@ assert.equal(sent.at(-1).completed, false);
 window.Observer.actionResult({request_id: sent.at(-1).request_id, ok: true, result: {}});
 runtime.tasks.a.management = coreBoundary.restored.tasks['ui-test'].management; runtime.tasks.a.displayed_revision = 7;
 window.Observer.receive(runtime);
-assert.equal(observationButton.textContent, '자동 반영 켜기');
+assert.equal(observationButton.textContent, '자동 반영 꺼짐');
 assert.equal(observationButton.hidden, false);
 assert.equal(draft.value, 'edited after request');
 runtime.sessions.s.usage = JSON.parse(JSON.stringify(measured.usage)); runtime.sessions.s.usage_stale = false;
@@ -395,6 +431,7 @@ runtime.sessions.s.task_ids = ['a', 'b']; runtime.contributions.b.s = {reporting
 window.Observer.receive(runtime);
 const linkedSession = walk(detail).find(element => element.tagName === 'BUTTON' && element.className.includes('session-button'));
 linkedSession.fire('click');
+assert.equal(toolbar.hidden, true);
 const usagePanel = walk(detail).find(element => element.className.includes('usage-panel')); usagePanel.open = true;
 assert.ok(usagePanel.textContent.includes('1,000'));
 assert.ok(usagePanel.textContent.includes('캐시 입력 · 입력 합계에 포함900'));

@@ -25,7 +25,7 @@ Sample fixture:
 - 이전 파서 검증: 완료/보관 필터에만 표시.
 
 ## Screen T: task detail
-Top: back, task title, overflow actions. Compact reported progress + last report time (not collector timestamp).
+Fixed top: back, task title, then compact task controls (automatic reflection on/off and complete/restore), outside the scrolling body. No management heading or explanatory paragraph. Compact reported progress + last report time remain in the body (not collector timestamp).
 Vertical priority:
 A. “현재 상황” single prominent text panel; source/time short.
 B. “내가 할 일” only when explicitly reported intervention. Show precise decision/request. “다음 행동” separately (agent's next action); neither inferred from blocker. “복귀 지점” direct link to relevant session/resource if available.
@@ -33,7 +33,7 @@ C. “작업 리소스” grouped collapsible categories: 이슈, 문서·위키
 D. “추적 항목 N개”: each card title + status, value (1–3 lines with expand), footer last updated session and absolute/relative time. Disclosure: full value, evidence references, pinned flag, history, item ID/revision diagnostics. “고정” is protection, not proof. Free key/value items remain; recommended categories (not mandatory): 현재 상황, 사용자 개입 필요, 블로커, 다음 행동, 복귀 지점, 주요 결정, 검증 결과. Multiple blockers/decisions/results allowed.
 E. “연결 세션 N개”: session name, auto-report on/off, last activity, last report, direct session detail/open action. Multiple sessions per task.
 F. “메모·이력”: user notes preserved; editable only through validated existing/new safe write API. History by time with source/old/new values.
-G. “태스크 관리”: auto-observation toggle, complete/archive, restore. Place destructive/lifecycle actions in overflow or bottom, not primary action card. A separate “상태 파일 보기” button reveals this task’s state.json in Finder even when the JSON is unhealthy; navigation does not mutate or recover state.
+G. Task management actions are in the fixed top controls, not at the bottom: automatic reflection on/off and complete/restore. Existing revision checks, archived observation preference and error handling remain. Hide task controls in session detail. A separate “상태 파일 보기” button remains at the bottom and reveals this task’s state.json in Finder even when the JSON is unhealthy; navigation does not mutate or recover state.
 Sample: auth task situation “통합 테스트 진행 중”, intervention “정책 A/B 결정”, blocker “테스트 계정 권한 부족”, next “권한 확보 후 재실행”, resume Devin #12, resource PR #142.
 
 ## Screen S: session detail

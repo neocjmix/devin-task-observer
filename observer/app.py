@@ -83,9 +83,15 @@ def status(value):
 
 
 def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == 'state':
+        from .state_cli import main as state_main
+        return state_main(argv[1:])
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--config',type=Path,default=DEFAULT_CONFIG)
     commands=p.add_subparsers(dest='command',required=True)
+    state_command=commands.add_parser('state', help='파일 기반 태스크 조회·보고·검증; state --help')
+    state_command.add_argument('state_args', nargs=argparse.REMAINDER)
     configure=commands.add_parser('configure',help='개인 작업 공간 설정 저장')
     configure.add_argument('--workspace',type=Path,action='append',required=True)
     configure.add_argument('--source',type=Path,default=Path.home()/'.local/share/devin/cli/sessions.db')
@@ -101,6 +107,9 @@ def main(argv=None):
     auto=commands.add_parser('autostart',help='명시적 선택: 개인 로그인 시 실행 등록 또는 해제')
     auto.add_argument('action',choices=('install','remove'))
     args=p.parse_args(argv)
+    if args.command=='state':
+        from .state_cli import main as state_main
+        return state_main(args.state_args)
     try:
         if args.command=='configure':
             value={'version':1,'workspaces':sorted({str(w.expanduser().absolute()) for w in args.workspace}),'source':str(args.source.expanduser().absolute()),'store':str(args.store.expanduser().absolute()),'port':args.port}

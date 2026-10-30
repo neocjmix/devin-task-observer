@@ -1,10 +1,12 @@
 # Devin Task Observer — Implementation Plan
 
-## 2026-10-30 design direction — planning only
+## Current delivery — M3-S01 (2026-10-30)
 
-[설계 변경안](DESIGN_CHANGE_PROPOSAL_2026-10-30_KO.md)이 미래 설계에서 충돌하는 기존 방향보다 우선한다. 결정론적 관측은 유지하고, 선택적 에이전트 CLI/스킬 능동보고, 파일 중심 영속상태와 검증·내결함성, macOS 메뉴 막대 View, 익숙한 스택과 Swift 최소화를 계획한다. btw/fork는 제외하며 검색은 부차 후보다. 훅 방식과 기존 독립 분석 기능의 정리는 미결정이다. **구현·마이그레이션 승인이나 완료 기록이 아니다.** 아래 P0~M2 계획과 검증 기록은 기존 구현의 근거로 보존한다.
+[슬라이스 목록](SLICES.md)과 [M3-S01](slices/M3-S01.md)이 현재 구현 범위다. 사용자가 구현·자율 검증을 승인했다. [설계 변경안](DESIGN_CHANGE_PROPOSAL_2026-10-30_KO.md)과 [상태 트랜잭션 계약](STATE_TRANSACTION_CONTRACT_2026-10-30_KO.md)을 기준으로 새 태스크의 파일 원본 상태와 협조형 보고 CLI를 먼저 완성한다. 결정론적 관측은 재사용하고 기존 SQLite 데이터는 보존한다. 메뉴 막대·실제 스킬 전달·기존 데이터 이관은 후속 범위다.
 
-Status: planning, 2026-10-27. Devin Desktop internals require verification on a personal installation.
+**이 아래 P0~M2 본문은 기존 런타임의 역사적 계약과 검증 기록이다.** 아래 `normative`, `next`, `First task`는 당시 단계에만 적용되며 새 슬라이스의 착수 조건이나 우선순위가 아니다. 기존 별도 모델 경로를 확장하거나 자동 실행하는 지시로 사용하지 않는다.
+
+Historical starting status: planning, 2026-10-27. Devin Desktop internals require verification on a personal installation.
 
 ## Objective and constraints
 
@@ -104,4 +106,4 @@ Both adapters return the same bounded patch proposal and usage/diagnostics shape
 
 ## M2 implementation record (2026-10-29)
 
-The bounded manual semantic vertical slice is implemented on the existing branch. Personal Codex exec was run with two synthetic session sources and with actual synthetic Devin Desktop sessions through the browser. Safe machine-owned patches, separate semantic cursors, human preservation, usage/budgets, retry and failure isolation are implemented. After an initial auth failure, personal browser reauthentication succeeded and actual Devin ACP new-session streaming plus the two-session patch integration test passed. Dangerous tool denial is mock-tested and internal organizational policy/isolation still require target-environment signoff. This does not close the real-work dogfood/product-quality gate. See [M2 implementation, measured usage, acceptance evidence and limitations](M2_PROGRESS.md). The normative contracts above remain the baseline.
+The bounded manual semantic vertical slice is implemented on the existing branch. Personal Codex exec was run with two synthetic session sources and with actual synthetic Devin Desktop sessions through the browser. Safe machine-owned patches, separate semantic cursors, human preservation, usage/budgets, retry and failure isolation are implemented. After an initial auth failure, personal browser reauthentication succeeded and actual Devin ACP new-session streaming plus the two-session patch integration test passed. Dangerous tool denial is mock-tested and internal organizational policy/isolation still require target-environment signoff. This does not close the real-work dogfood/product-quality gate. See [M2 implementation, measured usage, acceptance evidence and limitations](M2_PROGRESS.md). The contracts above remain the baseline for the retained M2 runtime; M3 follows the newer contracts linked at the top.

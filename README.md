@@ -1,8 +1,10 @@
 # Devin Task Observer
 
-**설계 변경·플래닝 중 (2026-10-30):** [협조형 보고·파일 중심 상태·메뉴 막대 View 변경안](docs/DESIGN_CHANGE_PROPOSAL_2026-10-30_KO.md)을 먼저 읽으세요. 기존 작업 에이전트의 CLI/스킬 기반 능동보고, 직접 편집·검증 가능한 로컬 상태, Swift 최소화가 새 방향입니다. 아직 구현하지 않았으며 아래는 기존 SQLite·브라우저·수동 의미 분석 구현의 사용 기록입니다.
+**현재 슬라이스: [M3-S01 — 협조형 보고 CLI와 파일 원본 상태](docs/slices/M3-S01.md), CLI·파일 상태 슬라이스 구현·검증 완료 (2026-10-30).** [슬라이스 목록](docs/SLICES.md)이 현재 범위와 문서 우선순위를 정합니다. 새 태스크의 보고 상태를 파일 원본으로 관리하고, 기존 작업 에이전트가 CLI로 보고하는 경로를 구현했습니다. 메뉴 막대 View·실제 스킬 전달·기존 데이터 이관은 후속 슬라이스입니다.
 
-후속 확정: [낙관적 트랜잭션·업데이트 세션·세션별 추적 정의·명시적 고정값 보호 계약](docs/STATE_TRANSACTION_CONTRACT_2026-10-30_KO.md). 고정하지 않은 추적값은 사람이 수정했어도 후속 유효 보고로 갱신할 수 있고 메모·변경 이력은 항상 보존합니다. 아직 구현 전입니다.
+설계 기준: [변경안](docs/DESIGN_CHANGE_PROPOSAL_2026-10-30_KO.md)과 [낙관적 트랜잭션·업데이트 세션·세션별 추적 정의·명시적 고정값 보호 계약](docs/STATE_TRANSACTION_CONTRACT_2026-10-30_KO.md). 고정하지 않은 추적값은 사람이 수정했어도 후속 유효 보고로 갱신할 수 있고 메모·변경 이력은 항상 보존합니다. 실제 검증 결과는 슬라이스 문서에 기록합니다. 현재 명령과 저장 경계는 [M3-S01 CLI·파일 계약](docs/slices/M3-S01_CLI.md), 에이전트 사용 지침은 [보고 스킬](skills/observer-reporting/SKILL.md)에 있습니다.
+
+아래는 보존 중인 **기존 P0~M2 SQLite·웹·수동 의미 분석 경로**의 사용 기록입니다. 새 파일 상태로 자동 이관하지 않으며 메뉴 막대 구현 완료를 뜻하지 않습니다.
 
 Private, local-first task observability for Devin Desktop. The observer reads the source without controlling Devin and stores task data separately. Collection and dashboard viewing make no LLM calls and send no telemetry.
 

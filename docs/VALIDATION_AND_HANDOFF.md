@@ -1,8 +1,10 @@
 # Validation, Security, and Handoff
 
-## 2026-10-30 planning boundary
+## Current validation scope — M3-S01 (2026-10-30)
 
-[새 설계 변경안](DESIGN_CHANGE_PROPOSAL_2026-10-30_KO.md)에 에이전트 능동보고·파일/스키마·메뉴 막대·스택 요구와 향후 검증 계획을 기록했다. 현재 단계는 플래닝이다. 보고 누락·계약 변경·다대다·상충 보고, 직접 파일 편집·불완전 저장·손상·동시 수정·복구, 브라우저 없는 메뉴 막대 조회와 실제 에이전트 비용을 새로 검증해야 한다. 기존 P0~M2 테스트 통과를 새 방향의 검증으로 간주하지 않는다. 아래 내용은 기존 구현의 단계·인수인계 기록이다.
+사용자의 구현 승인에 따라 [M3-S01](slices/M3-S01.md)의 파일 원본·보고 CLI·낙관적 갱신·복구·검증 경로를 테스트한다. 기본 회귀 테스트와 합성 CLI·프로세스 검증을 실행하고 실패·skip·한계를 별도로 기록한다. 기존 P0~M2 테스트 통과를 새 경로의 증거로 대신하지 않는다. 실제 Devin 스킬의 자발적 보고와 메뉴 막대는 후속 범위이며 이번 CLI 테스트만으로 통과를 주장하지 않는다.
+
+[슬라이스 목록](SLICES.md)이 현재 우선순위와 문서 범위를 정한다. **아래 P0~M2 게이트·예산·next 지시는 보존 중인 기존 런타임의 역사적 계약이다.** 새 방향의 충실도·비용 사전 증명을 착수 조건으로 되살리지 않는다.
 
 ## Phase gates and estimates
 
@@ -69,4 +71,4 @@ Company session content must never be sent to personal Codex, public API endpoin
 
 ## M2 implementation record (2026-10-29)
 
-The bounded manual semantic vertical slice is implemented on the existing branch. Personal Codex exec was run with two synthetic session sources and with actual synthetic Devin Desktop sessions through the browser. Safe machine-owned patches, separate semantic cursors, human preservation, usage/budgets, retry and failure isolation are implemented. After an initial auth failure, personal browser reauthentication succeeded and actual Devin ACP new-session streaming plus the two-session patch integration test passed. Dangerous tool denial is mock-tested and internal organizational policy/isolation still require target-environment signoff. This does not close the real-work dogfood/product-quality gate. See [M2 implementation, measured usage, acceptance evidence and limitations](M2_PROGRESS.md). The normative contracts above remain the baseline.
+The bounded manual semantic vertical slice is implemented on the existing branch. Personal Codex exec was run with two synthetic session sources and with actual synthetic Devin Desktop sessions through the browser. Safe machine-owned patches, separate semantic cursors, human preservation, usage/budgets, retry and failure isolation are implemented. After an initial auth failure, personal browser reauthentication succeeded and actual Devin ACP new-session streaming plus the two-session patch integration test passed. Dangerous tool denial is mock-tested and internal organizational policy/isolation still require target-environment signoff. This does not close the real-work dogfood/product-quality gate. See [M2 implementation, measured usage, acceptance evidence and limitations](M2_PROGRESS.md). The contracts above remain the baseline for the retained M2 runtime; M3 follows the newer contracts linked at the top.

@@ -1,0 +1,306 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Observer cooperative task v1",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "updated_at": {
+      "type": "string",
+      "maxLength": 16000
+    },
+    "updated_by": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "human",
+            "session"
+          ]
+        },
+        "session_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[^\\s/\\\\]+$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "session_id"
+      ],
+      "additionalProperties": false
+    },
+    "contributions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^[^\\s/\\\\]+$"
+          },
+          "reporting": {
+            "type": "boolean"
+          },
+          "linked_at": {
+            "type": "string",
+            "maxLength": 16000
+          },
+          "last_report_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 16000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "session_id",
+          "reporting",
+          "linked_at",
+          "last_report_at"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 100
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "value": {},
+          "status": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "session_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "pattern": "^[^\\s/\\\\]+$"
+                },
+                "reference": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                },
+                "kind": {
+                  "enum": [
+                    "session_event",
+                    "local_artifact",
+                    "report"
+                  ]
+                }
+              },
+              "required": [
+                "session_id",
+                "reference",
+                "kind"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 100
+          },
+          "pinned": {
+            "type": "boolean"
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "created_by": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "human",
+                  "session"
+                ]
+              },
+              "session_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "pattern": "^[^\\s/\\\\]+$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "session_id"
+            ],
+            "additionalProperties": false
+          },
+          "updated_by": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "human",
+                  "session"
+                ]
+              },
+              "session_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "pattern": "^[^\\s/\\\\]+$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "session_id"
+            ],
+            "additionalProperties": false
+          },
+          "item_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "commit_sequence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "updated_at": {
+            "type": "string",
+            "maxLength": 16000
+          },
+          "report_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$"
+          },
+          "verification": {
+            "const": "reported"
+          }
+        },
+        "required": [
+          "item_id",
+          "title",
+          "value",
+          "status",
+          "evidence",
+          "pinned",
+          "archived",
+          "created_by",
+          "updated_by",
+          "item_revision",
+          "commit_sequence",
+          "updated_at",
+          "report_id",
+          "verification"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 1000
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "note_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 16000
+          },
+          "created_at": {
+            "type": "string",
+            "maxLength": 16000
+          }
+        },
+        "required": [
+          "note_id",
+          "text",
+          "created_at"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 1000
+    },
+    "view": {
+      "type": "object",
+      "properties": {
+        "markdown": {
+          "type": "string",
+          "maxLength": 16000
+        }
+      },
+      "required": [
+        "markdown"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "task_id",
+    "title",
+    "revision",
+    "updated_at",
+    "updated_by",
+    "contributions",
+    "items",
+    "notes",
+    "view"
+  ],
+  "additionalProperties": false
+}

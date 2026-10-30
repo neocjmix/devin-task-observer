@@ -1,10 +1,12 @@
 # Data and Reconciliation Specification
 
-## 2026-10-30 planned storage and reporting change
+## M3-S01 storage and reporting contract (2026-10-30)
 
-[설계 변경안](DESIGN_CHANGE_PROPOSAL_2026-10-30_KO.md)의 파일 원본·직접 편집·버전 스키마·범위별 오류 격리 요구가 새 방향이다. 보고를 켠 작업 에이전트가 CLI로 의미 변경을 전달하고 Core가 검증하는 계약을 계획한다. 다대다·출처·인간 정보·충돌·신선도 보호는 유지한다. 파일 저장의 원자성, 보고와 checkpoint, 기존 SQLite의 전환은 아직 미설계·미구현이며 아래 DB 트랜잭션 보장을 새 저장 구조에 그대로 적용했다고 가정하지 않는다. 아래 내용은 기존 P0~M2 계약·구현 기록이다.
+[M3-S01](slices/M3-S01.md)은 [설계 변경안](DESIGN_CHANGE_PROPOSAL_2026-10-30_KO.md)의 파일 원본·직접 편집·버전 스키마·범위별 오류 격리 요구를 새 태스크에 구현한다. 보고를 켠 작업 에이전트가 CLI로 의미 변경을 전달하고 Core가 검증한다. 파일의 낙관적 갱신·짧은 커밋 락·복구·이력 보존을 별도로 검증하며, 기존 SQLite의 원자성 증거로 대신하지 않는다. 기존 수집·태스크·View 데이터의 자동 전환은 이번 범위가 아니다. 현재 결과는 [슬라이스 기록](slices/M3-S01.md)을 따른다.
 
-후속 확정된 [상태 트랜잭션 계약](STATE_TRANSACTION_CONTRACT_2026-10-30_KO.md)은 낙관적 읽기–판단–커밋, 세션별 항목 정의·업데이트 출처, 명시적 고정값 보호를 정한다. 미래 설계에서는 사람이 수정한 추적값도 고정하지 않았다면 후속 유효 보고로 갱신할 수 있고 메모·변경 이력은 항상 보존한다. 이 정책은 아래 기존 M2의 인간 소유 전환·보호 규칙과 충돌하는 부분보다 우선하며, 현재 코드를 바꿨다는 뜻은 아니다.
+후속 확정된 [상태 트랜잭션 계약](STATE_TRANSACTION_CONTRACT_2026-10-30_KO.md)은 낙관적 읽기–판단–커밋, 세션별 항목 정의·업데이트 출처, 명시적 고정값 보호를 정한다. 미래 설계에서는 사람이 수정한 추적값도 고정하지 않았다면 후속 유효 보고로 갱신할 수 있고 메모·변경 이력은 항상 보존한다. 이 정책은 새 M3 경로에 적용한다. 아래 기존 M2의 인간 소유 전환·보호 규칙은 보존 중인 기존 런타임의 계약이다.
+
+**아래 `normative`를 포함한 P0~M2 본문은 역사적 범위다.** 새 보고 경로에서는 세션이 의미를 조정하며 최신 유효 커밋을 사용한다. 기존 모델 패치·의미 커서와 새 보고 revision을 같은 상태로 혼용하지 않는다.
 
 ## Entities
 
@@ -68,4 +70,4 @@ No semantic checkpoint advancement until an accepted patch or durable no-change 
 
 ## M2 implementation record (2026-10-29)
 
-The bounded manual semantic vertical slice is implemented on the existing branch. Personal Codex exec was run with two synthetic session sources and with actual synthetic Devin Desktop sessions through the browser. Safe machine-owned patches, separate semantic cursors, human preservation, usage/budgets, retry and failure isolation are implemented. After an initial auth failure, personal browser reauthentication succeeded and actual Devin ACP new-session streaming plus the two-session patch integration test passed. Dangerous tool denial is mock-tested and internal organizational policy/isolation still require target-environment signoff. This does not close the real-work dogfood/product-quality gate. See [M2 implementation, measured usage, acceptance evidence and limitations](M2_PROGRESS.md). The normative contracts above remain the baseline.
+The bounded manual semantic vertical slice is implemented on the existing branch. Personal Codex exec was run with two synthetic session sources and with actual synthetic Devin Desktop sessions through the browser. Safe machine-owned patches, separate semantic cursors, human preservation, usage/budgets, retry and failure isolation are implemented. After an initial auth failure, personal browser reauthentication succeeded and actual Devin ACP new-session streaming plus the two-session patch integration test passed. Dangerous tool denial is mock-tested and internal organizational policy/isolation still require target-environment signoff. This does not close the real-work dogfood/product-quality gate. See [M2 implementation, measured usage, acceptance evidence and limitations](M2_PROGRESS.md). The contracts above remain the baseline for the retained M2 runtime; M3 follows the newer contracts linked at the top.

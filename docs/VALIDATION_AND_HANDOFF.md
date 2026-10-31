@@ -1,90 +1,54 @@
-# Validation, Security, and Handoff
+# 검증과 작업 인수인계
 
-## Current validation scope — M3 (2026-10-30)
+| 항목 | 내용 |
+|---|---|
+| 문서 유형 | 운영·개발 안내 |
+| 상태 | 현재 기준선 이후 사용 |
+| 기준 | [2026-10-31 고정 기준선](BASELINE.md) |
+| 적용 범위 | 재검증·다음 세션 시작·안전 경계 |
 
-현재 기준선은 [M3-S01](slices/M3-S01.md)의 파일 원본·보고 CLI·낙관적 갱신·복구이며,
-[M3-S02](slices/M3-S02.md)의 실제 세션 연결·메뉴 막대·지속 수집과
-[M3-S03](slices/M3-S03.md)의 기존 데이터 보존 이관·롤백을 순서대로 검증한다.
-기본 회귀, 합성 파일·CLI·프로세스 테스트, 실제 Devin Desktop·macOS 확인은 증거를 나누어 기록한다.
-기존 P0~M2 테스트 통과를 새 경로의 증거로 대신하지 않는다.
+## 시작할 때
 
-- 합성 검증은 다중 세션 보고·충돌·핀·이력, 설치/제거 시 기존 훅 보존, 비공개 대화 필드 미저장,
-  수집 실패 후 재시도·재시작, 메뉴의 last-good 표시, 이관 전후 데이터 보존과 롤백 거부 조건을 포함한다.
-- 실제 새 개인 합성 Devin Desktop/CLI 세션에서 훅 식별·스킬·능동보고를 확인했다. 별도 보고 요청 없는 후속 보고, 두 세션의 충돌 재판단, 핀·메모 보호도 검증했다. 실제 긴 대화 압축 후 이행이나 보고의 완전한 정확성을 보증하지 않는다. 최종 결과와 실패 사례는 [M3 진행 기록](M3_PROGRESS.md), 메뉴 실행 증거는 S02를 따른다.
-- 스킬은 Devin의 정상 도구 승인 절차를 따른다. 전역 훅이나 blanket 권한을 추가하지 않으며,
-  훅 출력은 문맥 전달·진단용이다. 훅이 원래 작업의 종료를 막거나 대신 LLM 보고를 생성하지 않는다.
-- 이관 검증은 합성 자료와 명시적으로 선택한 개인 Observer 자료에 한정한다. 원본 Devin 저장소·기존 Observer DB를
-  덮어쓰지 않고, 새 파일 저장소·백업·복원 경로의 실제 검사 결과를 S03에 남긴다.
+1. [기준선](BASELINE.md) → [백로그](BACKLOG.md) → 해당 이슈와 슬라이스를 읽는다.
+2. `git status --short --branch`, `git log`, 원격 브랜치/PR head를 확인한다. 미커밋 변경은 작성 주체와 범위를 확인해 보존한다.
+3. 현재 기준 제품은 `3ed1955`, 태그는 `baseline/2026-10-31-m3-ui-v2`다. 이후 문서 커밋과 제품 변경을 구분한다.
+4. 실제 실행 설정은 `~/.devin-task-observer/config.json`이며 태스크 원본은 `state/`다. 레거시 실험 DB나 실험실 폴더를 기본값으로 되돌리지 않는다.
+5. 명시적 다음 슬라이스 없이 현재 정리를 기능 확장 승인으로 해석하지 않는다.
 
-핵심 수용 기준은 사용자가 태스크를 연결하고 보고를 켠 뒤 메뉴 막대에서 최근 보고값·작성 세션·시각·근거를
-확인할 수 있는지다. 세션의 의미 판단과 보고는 best effort이며, ON이나 훅 활동만으로 값이 최신·정확하다고
-보증하지 않는다. 단위 테스트 수, CLI 성공, 실제 스킬 로드 각각의 증거 범위를 넘어 완료를 선언하지 않는다.
+## 재현 가능한 점검
 
-[슬라이스 목록](SLICES.md)이 현재 우선순위와 문서 범위를 정한다. **아래 P0~M2 게이트·예산·next 지시는 보존 중인 기존 런타임의 역사적 계약이다.** 새 방향의 충실도·비용 사전 증명을 착수 조건으로 되살리지 않는다.
+```sh
+python3 scripts/check_docs.py
+DEVIN_OBSERVER_GIT=/Library/Developer/CommandLineTools/usr/bin/git python3 -m unittest discover -s tests -q
+node tests/ui_v2_frontend.cjs
+./observerctl state list
+"$HOME/Library/Application Support/Devin Task Observer/menu-runtime/bin/python" -m observer.desktop --snapshot
+```
 
-## Phase gates and estimates
+Git 경로는 이 Mac의 이미 설치된 대안이다. 다른 환경에서는 정상 Git을 지정한다. 이 명령들은 에이전트의 재검증 경로이며 사용자에게 수동 실행을 요구하는 인수인계가 아니다. 실제 모델 테스트는 `OBSERVER_LIVE_CODEX`, `OBSERVER_LIVE_DEVIN_ACP`가 없으면 skip된다. 문서 정리나 일반 조회를 위해 활성화하지 않는다.
 
-P0: Personal Devin Desktop local-data and hook probe (4–12h). Go only if active sessions can be discovered and changed reliably via read-only access.
-P1: Adapter, incremental diff, checkpoints, synthetic fixtures (12–24h). Pass rewrite/restart/duplicate/crash tests.
-P2: Task registry and many-to-many contribution mapping (10–20h). Two sessions per task and multiple tasks per session.
-P3: Persistent views, dashboard, manual corrections (16–32h). Zero-token reads and stable view structure.
-P4: Optional semantic reconciliation (16–40h). Evidence-linked patches with strict budget.
-P5: Dogfood, hardening and approved internal import (16–40h). Validate security and usefulness.
+기준선의 414/412/2 결과를 새 코드의 결과로 복사하지 않는다. 제품 코드를 변경하면 변경 범위에 맞춰 다시 검증하고 최종 결과를 새 슬라이스에 기록한다. 이번 문서 정리에서는 제품 코드를 바꾸지 않았고 전체 회귀와 문서 링크 검사를 따로 실행했다.
 
-These are planning estimates, not delivery promises.
+## 증거 분류
 
-## Dashboard
+| 분류 | 인정할 수 있는 근거 | 대신 주장하면 안 되는 것 |
+|---|---|---|
+| 단위·합성 통합 | 재현 가능한 입력, 결과, 종료 코드, 보존 비교 | 실제 Devin/사용자 작업 성공 |
+| Mock | 프로토콜·실패·권한 분기의 처리 | 실제 외부 호환성·승인 |
+| 실제 개인 합성 Devin | 실제 세션 ID/훅/도구 결과와 원본 비간섭 | 회사 환경·모든 provider·항상 정확한 보고 |
+| 실제 Mac UI | 실제 클릭·표시·오류/복구·스크린샷 | 실시간 다중 에이전트·VoiceOver 음성까지 자동 확대 |
+| 읽기 전용 런타임 | 앱·서비스 상태, 수집 성공, 태스크 불변 | 새 보고 턴의 의미 정확성 |
 
-Home: attention queue, active tasks, stale/unknown states, recent changes, unclassified sessions. Task detail: stable custom sections, ticket/PR links, plan, findings, decisions, blockers, freshness, evidence drilldown, contributions, manual edit and refresh. Session detail: read-only timeline, last seen and source health. Open-in-Devin links only after verifying deep-link support.
+수집 오류와 파일 손상은 별개로 검증한다. 목록이 복구됐다는 이유만으로 수집기 건강도를 정상으로 선언하지 않는다. 도구 실행 시도·모델 응답·보고 ON만으로 기능 완료를 주장하지 않는다.
 
-## Budget
+## 설치·재시작 경계
 
-Deterministic collection, diff, projection and dashboard reads must use zero LLM tokens. Semantic analysis is off by default and triggered by manual refresh initially. Later, use debounced stop/idle triggers. Cache by delta hash, view revision and model/prompt version. Enforce per-call/daily hard limits and a usage ledger. Budget exhaustion never disables basic tracking.
+기본 앱은 `observer.desktop`, 진단은 `--snapshot`, NSMenu는 `--legacy-menu`다. `.app`은 checkout/venv를 참조하는 alias다. `scripts/setup_menu.py --upgrade-app`의 명시적 이전 경로 옵션은 관리형 런처만 재연결하며 데이터를 이관하지 않는다. [실제 데이터 위치 이전](slices/M3-S05.md)의 백업을 보존한다.
 
-## Security
+하나의 관측 DB에는 서비스 락으로 수집 소유자를 하나만 둔다. 필요 시 앱을 정상 종료한 뒤 재실행하고 태스크 상태·수집 성공을 확인한다. 다른 실험 프로세스를 임의 종료하지 않는다. 로그인 자동 실행·접근성 권한·계정 인증은 필요할 때 해당 범위만 승인받는다.
 
-Personal development uses public docs, personal Devin sessions and synthetic fixtures only. Do not copy company transcripts, source, tickets, credentials, configs or incident details to personal environments. Localhost UI, no telemetry/egress by default, least-privilege file access, no writes to Devin storage, no ACP session takeover, minimal retention, redacted diagnostics and dependency/license review. Internal deployment uses company-approved transfer and models. No reverse sync from company repo to personal GitHub.
+## 보안과 완료 보고
 
-## Dogfood metrics
+원본 Devin에 쓰거나 기존 작업 세션에 프롬프트를 주입·재개·소유권 획득하지 않는다. 개인 승인 workspace와 합성 데이터만 사용한다. 대화 원문·DB·개인 설정·인증정보·스크린샷은 Git에 넣지 않는다. 관측·조회는 텔레메트리와 별도 모델 호출 없이 수행한다.
 
-Count status-only session revisits/day; median time to find ticket, PR and next action; share of status questions answered without opening session; stale/incorrect claim rate; semantic tokens/day; bytes reprocessed; adapter failures. Test the hypothesis of 50% fewer status-only revisits rather than assuming it.
-
-## P0 unresolved questions
-
-Actual Devin Desktop storage locations and schemas across models; stable IDs and ordering; write frequency/atomicity; compaction and transcript rewrite; hook payloads in Desktop versus CLI; structured TODO availability; deep-link behavior; company data policy.
-
-## Handoff
-
-Use Codex for generic core/UI/fixtures and personal Devin only for integration probes. Keep external and internal repositories independent. If only documentation may be imported, implement internally from these plans. First deliverable: a read-only probe that reports discovered sessions, formats, change patterns and stable identifiers without retaining message bodies or sending data over the network.
-
-
-## Current M1 handoff
-
-The prototype now implements [M1 — Useful Observer](M1_PROGRESS.md) for the observed Local configuration. The current lightweight entry point and explicit login-startup choice are in the [README](../README.md#local-entry-point). Actual Desktop/browser evidence and fixture-only guarantees are listed separately in the M1 acceptance table. Full transcript reconstruction, external resource status, production scale and other provider support remain outside the validated delivery.
-
-
-## Product-completion gate: M2 Semantic Task Tracking
-
-**M1 is not the finished product.** The original user problem is repeated manual status reconstruction across 10+ sessions. After linking sessions once, the user should ordinarily *read* a continuously maintained task state, not transcribe findings or approve every ordinary update.
-
-M2 must demonstrate: two sessions contributing to one task; incremental extraction of natural-language progress, blockers, decisions, open questions and next actions; persistent task-specific View structure; evidence-linked bounded patching; safe auto-apply to machine-owned items; preserved human edits; explicit conflicts and freshness; replay idempotence; zero-token unchanged reads/refresh; budget exhaustion fallback.
-
-Implement a single complete vertical slice first, with synthetic labeled scenarios and real personal Devin Desktop smoke tests. Manual semantic refresh is sufficient initially. No complete transcript engine, agent-side hook contract, ACP control, cloud services or redesign required. Distinguish real Devin validation from synthetic fixtures and do not claim full product completion from test count alone.
-
-Acceptance metrics: percentage of status questions answered without reopening Devin, unsupported-claim and omission rates against labeled scenarios, repeated-update duplicate rate, time to find blockers/next action, semantic tokens per useful update and number of user approvals. Record unresolved gaps and semantic staleness.
-
-The next critical path after M1 is **M2**, before optional polish and broad compatibility work. The experimental P4 single-message local-model note proposal must not be mistaken for multi-session semantic reconciliation.
-
-
-## M2 adapter verification and environment boundary
-
-Primary development/testing adapter: **Codex CLI** in a personal environment. Target internal adapter: **Devin ACP**, using only newly created isolated semantic-analysis sessions; existing task sessions are read-only. The earlier Ollama proof of concept is not the target inference path.
-
-Acceptance tests: mock adapter parity; Codex CLI real noninteractive execution and schema validation; subprocess timeout, nonzero exit, invalid JSON, interrupted run and duplicate replay; ACP capability negotiation, new-session-only invariant, streamed output assembly, tool-permission denial, disconnect, cancellation, auth failure, usage-unknown and concurrent requests. Distinguish mocked ACP tests from real Devin ACP integration; target environment signoff requires live verification. No hidden fallback to an external provider.
-
-Company session content must never be sent to personal Codex, public API endpoints or personal GitHub. Internal deployment must explicitly select the approved Devin ACP adapter; missing ACP access fails closed while deterministic dashboard remains available. Document operational token/call limits and any unmetered provider behavior.
-
-
-## M2 implementation record (2026-10-29)
-
-The bounded manual semantic vertical slice is implemented on the existing branch. Personal Codex exec was run with two synthetic session sources and with actual synthetic Devin Desktop sessions through the browser. Safe machine-owned patches, separate semantic cursors, human preservation, usage/budgets, retry and failure isolation are implemented. After an initial auth failure, personal browser reauthentication succeeded and actual Devin ACP new-session streaming plus the two-session patch integration test passed. Dangerous tool denial is mock-tested and internal organizational policy/isolation still require target-environment signoff. This does not close the real-work dogfood/product-quality gate. See [M2 implementation, measured usage, acceptance evidence and limitations](M2_PROGRESS.md). The contracts above remain the baseline for the retained M2 runtime; M3 follows the newer contracts linked at the top.
+완료 보고는 변경한 범위, 실제 검증, 미검증/실패, 남은 이슈, 사용자 개입, 커밋/PR을 구분한다. 이슈는 수용 기준을 실제로 충족했을 때 증거와 커밋을 붙여 닫는다. PR은 별도 요청 없이 병합하지 않는다.

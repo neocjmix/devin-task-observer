@@ -1,72 +1,59 @@
-# Observer UI v2 — screen and interaction specification
-Companion to [roadmap](UI_V2_ROADMAP.md). As of 2026-10-31, S0–S8 implement a Python/PyObjC NSPopover with local HTML/JS in WKWebView. NSMenu remains an explicit fallback. Names/numbers below are illustrative synthetic fixtures. The specification is not evidence for untested platform capabilities; see [S8 acceptance](slices/UI-V2-S8.md).
+# UI V2 화면과 상호작용 계약
 
-## Global contract
-- Status bar: neutral icon normally, attention only for real collector/data failure. Click opens popover; no model calls.
-- Design reference: width 420pt, height 600pt; scroll list/detail, adapt to available screen. macOS native typography/system colors, 14–16pt primary, 11–12pt secondary, 8–12pt gaps, 12pt card radius. Light/dark, reduced motion, keyboard and VoiceOver. This is a proposed design scale, not a macOS limit.
-- Header: “Task Observer” at left, “관측 정상” or “수집 실패” at right. Failure reveals last successful collection time and a diagnostic disclosure. Do not conflate collector health with agent progress.
-- Navigation: home ↔ task detail ↔ session detail, back preserves filter/scroll/selection. External links open with OS handler, not in embedded webview. Closing and reopening should preserve useful navigation state without stale data masquerading as current.
-- Do not repeat “unverified session report” badges. Item-level source/time in summary and evidence/history in disclosure. Actual failure, last_good replacement and unconfirmed candidate association must remain distinguishable.
+| 항목 | 내용 |
+|---|---|
+| 문서 유형 | 현재 화면 계약 |
+| 상태 | 기준선의 구현과 지원 경계 |
+| 기준 | [2026-10-31 고정 기준선](BASELINE.md) |
+| 적용 범위 | 홈·태스크·세션·오류 처리 |
 
-## Screen H: task home
-Vertical stack, 12pt padding:
-1. Header.
-2. Compact counted filters: 활성, 확인 필요, 내가 할 일, 새 보고, 보관. Counts derive from stored state; unknown report/read positions remain unknown. Missing initial cursor means unread only when a valid report revision exists.
-3. Search and filters share the same task list; 확인 필요 means data integrity issues, 내가 할 일 means explicit intervention.
-4. Scrollable task list sorted explicit intervention first, then new report, then other tasks. No unsupported AI-generated urgency ranking.
-5. Footer “마지막 성공 수집 · HH:mm”, 데이터 폴더 (configured Observer state root in Finder), diagnostic and quit controls.
+## 공통 구성
 
-Task row (min ~76pt, variable for wrap): first line status icon + title, right side observation-off icon only if disabled. Second line one most useful short reported situation/intervention. Third line subdued “Devin #12 · 12분 전” (last changing session/time) plus short status if needed. One click opens detail. Do not show token, every URL, revision, evidence, or repeated caveat here. Multiple sessions on task must not make task row look like session list.
-Sample fixture:
-- 인증 갱신: intervention “세션 만료 정책 결정 필요”, Devin #12 12분 전.
-- 태스크 자동추적: “구현 완료 보고 · 검증 확인 필요”, Devin #07 25분 전.
-- Figma Bridge: “선택 노드 전달 경로 개선”, Devin #18 5분 전.
-- 데이터 이관: “실사용 데이터 이관 대기”, 관측 꺼짐.
-- 이전 파서 검증: 완료/보관 필터에만 표시.
+상태 막대 아이콘에서 Python/PyObjC NSPopover의 로컬 WKWebView를 연다. 기준 크기는 420×600pt이며 화면 공간에 맞춰 스크롤한다. 이 크기는 macOS 표현 한계가 아니다. 외부 페이지·HTTP 서버·별도 브라우저·모델 호출이 필요하지 않다.
 
-## Screen T: task detail
-Fixed top: back, task title, then compact task controls (automatic reflection on/off and complete/restore), outside the scrolling body. No management heading or explanatory paragraph. Compact reported progress + last report time remain in the body (not collector timestamp).
-Vertical priority:
-A. “현재 상황” single prominent text panel; source/time short.
-B. “내가 할 일” only when explicitly reported intervention. Show precise decision/request. “다음 행동” separately (agent's next action); neither inferred from blocker. “복귀 지점” direct link to relevant session/resource if available.
-C. “작업 리소스” grouped collapsible categories: 이슈, 문서·위키, 환경, 코드(저장소·브랜치), PR, 소통(Slack), 산출물(Markdown), 기타. Each entry icon, concise label, external-open icon; branch may copy. Distinguish source docs from living deliverables. Candidates get short “후보” mark, not a blanket warning. Multiple entries/category, no single forced URL slot.
-D. “추적 항목 N개”: each card title + status, value (1–3 lines with expand), footer last updated session and absolute/relative time. Disclosure: full value, evidence references, pinned flag, history, item ID/revision diagnostics. “고정” is protection, not proof. Free key/value items remain; recommended categories (not mandatory): 현재 상황, 사용자 개입 필요, 블로커, 다음 행동, 복귀 지점, 주요 결정, 검증 결과. Multiple blockers/decisions/results allowed.
-E. “연결 세션 N개”: session name, auto-report on/off, last activity, last report, direct session detail/open action. Multiple sessions per task.
-F. “메모·이력”: user notes preserved; editable only through validated existing/new safe write API. History by time with source/old/new values.
-G. Task management actions are in the fixed top controls, not at the bottom: automatic reflection on/off and complete/restore. Existing revision checks, archived observation preference and error handling remain. Hide task controls in session detail. A separate “상태 파일 보기” button remains at the bottom and reveals this task’s state.json in Finder even when the JSON is unhealthy; navigation does not mutate or recover state.
-Sample: auth task situation “통합 테스트 진행 중”, intervention “정책 A/B 결정”, blocker “테스트 계정 권한 부족”, next “권한 확보 후 재실행”, resume Devin #12, resource PR #142.
+홈 ↔ 태스크 ↔ 세션으로 탐색하며 필터·스크롤·선택·작성 중 입력을 보존한다. 뒤늦은 비동기 응답은 다른 화면을 덮지 않는다. 수집 건강도·마지막 성공 시각·태스크 보고 시각을 구분한다. 출처/시각은 항목에, 긴 근거/진단은 펼침 영역에 둔다. 과도한 경고 문구를 반복하지 않되 오류·last_good·후보는 분명히 구분한다.
 
-## Screen S: session detail
-Title session name + client type if known. Rows: “자동보고 켜짐/꺼짐”, “최근 활동”, “최근 보고”, “작업 공간”, “연결 태스크 N개”. These are separate facts; enabled reporting does not imply fresh/accurate reports.
-Tokens collapsible: total input, new input, cached input, output, measurement timestamp and source; input total includes cached input, never add them again. Missing metrics: “사용량 정보 없음”, not error.
-“복귀 위치” from session-level locator; never duplicate per task. Primary “세션 열기” only for supported verified adapter, otherwise “ID 복사” or “Devin Desktop으로 이동”. A click must activate the existing owning client/window/tab only; never create, resume, steal ownership, send prompt, or execute agent. Failure message adjacent to action with copy fallback.
+## 홈
 
-## Lifecycle state machine
-Three distinct concepts: reported work progress (agent's free status), user-managed task lifecycle (active/completed-archived), and per-task observation setting (on/off).
-Allowed: active/on, active/off, completed/off. Completed/on disallowed. On complete store previous observation preference; on restore recover it. A task's observation-off must not stop shared-session collection needed by another task. Data/history remain available while archived. New reports while completed or observation-off are rejected inside the transaction without consuming their report ID; a retry of an already accepted receipt remains idempotent. Restore does not fabricate reports or reactivate another task.
-Do not conflate item.archived with task completion. No deletion on archive.
+| 영역 | 내용·동작 |
+|---|---|
+| 상단 | Task Observer, 수동 새로고침, 수집 상태·진단 |
+| 검색·필터 | 활성 / 확인 필요 / 내가 할 일 / 새 보고 / 보관. 확인 필요는 데이터 건강도, 내가 할 일은 명시적 intervention |
+| 태스크 목록 | 제목·짧은 상황·변경 세션/시각·자동 반영 OFF. intervention → 새 보고 → 알려진 최근 보고 순 |
+| 하단 | 마지막 성공 수집, 데이터 폴더 열기, 진단, 종료 |
 
-## Errors and integrity
-System collection failure: header alert, last successful collection time, retry/diagnostic affordance; do not claim data current. Task file corruption: mark affected task, show last_good with “마지막 정상 기록” and its timestamp, or “표시할 정상 기록 없음”. Other tasks remain usable. Action failure: “링크를 열지 못했습니다” / “세션을 열지 못했습니다”, with copy fallback. Missing optional metrics/resources are not failures. Read while collector updates; never jump scroll/reset edited text.
+보고/확인 위치를 알 수 없으면 0으로 표시하지 않는다. 목록을 연다고 모든 보고를 확인 처리하지 않는다. 토큰·모든 URL·revision·장황한 근거를 목록에 한꺼번에 표시하지 않는다.
 
-## Interaction acceptance fixtures
-1. Five active tasks, one intervention, three changed, one observation-off; archived one filtered out by default.
-2. One task linked to sessions A/B, another task also linked to A. Items changed by A and B at different times.
-3. Agent reports “completed” but user task remains active; another item pinned and a user note persists.
-4. Candidate PR URL is not shown as confirmed; registered URL can be opened, failed open gives copy.
-5. Session auto-report ON but last report hours old; activity 2 minutes old, no “report failure” claim.
-6. Collector fails while last_good exists; separate corrupted task with no last_good.
-7. Archived task restored with prior observation OFF; shared session observation continues for another task.
-8. Session token metrics have cache subset and duplicates; session used by two tasks; no double count.
-9. Session locator stale/unsupported: no automatic resume, ID copy works.
-10. Duplicate task/item titles, long Korean/English values, empty states, inaccessible URL, dark mode, keyboard focus.
+## 태스크 상세
 
-## Implemented scope and remaining boundaries
+**고정 상단**에 뒤로가기·제목과 `자동 반영 켜짐/꺼짐`, `완료/복원`만 둔다. 관리 설명문과 하단 관리 영역은 없다. 본문 스크롤과 독립적으로 유지하며 다른 화면에서는 숨긴다.
 
-- `observer.desktop` is the native entry, `observer.popover` the host, `observer/ui_v2/` the local frontend. No HTTP server, browser window, Electron, network content or model call is needed.
-- Pure projections preserve current vs last-good state, item source/time/evidence, pins, notes, candidates and all task–session edges. UI writes use the existing optimistic transactions and validate the displayed revision.
-- Optional v1 fields add item role/intervention, resources, task lifecycle/observation and report revision. `ui/read-cursors.json` has a separate validated contract and does not modify task revision. Old binaries cannot validate records populated with these new optional fields; do not silently roll back the reader.
-- Session metrics read the verified local SQLite v17 format. Input totals include cache input once. These are retained-message metrics, potentially including inherited fork history; not billing or lifetime totals, and never apportioned to linked tasks.
-- Exact owning session tab activation is unsupported. The UI copies the linked session ID or activates one already-running Devin app. No session URL, load, resume, ACP or prompt is issued.
-- Keyboard, AX labels, light/dark, live refresh, conflicts, errors and restart were checked on the actual native host with synthetic data. VoiceOver speech and 5–10 simultaneous live Devin agent executions were not tested. Eight synthetic source sessions and a separate read-only check of four real personal synthetic Devin sessions are distinct evidence.
-- Detailed per-slice results: [roadmap](UI_V2_ROADMAP.md), [S8 acceptance](slices/UI-V2-S8.md). Earlier S0 claims describe that historical baseline, not current capability.
+| 본문 영역 | 계약 |
+|---|---|
+| 현재 상황 | 명시적 역할의 보고값과 출처·시각 |
+| 내가 할 일·다음 행동·복귀 지점 | 역할이 있을 때 표시. blocker 제목/자유 상태값에서 사용자 개입을 추측하지 않음 |
+| 작업 리소스 | 이슈·문서/위키·환경·저장소/브랜치·PR·소통·산출물·기타. 자유 값과 여러 항목 허용 |
+| 추적 항목 | 제목·값·상태·마지막 작성 세션/시각, 펼치면 전체 값·근거·핀·진단 |
+| 연결 세션 | 세션별 보고 설정·활동·보고 시각·상세 이동, 다대다 유지 |
+| 메모·이력 | 사용자 메모와 자유 View 보존, 변경 전/후·출처의 페이지 이력 |
+| 상태 파일 보기 | 해당 태스크 state.json을 Finder에 표시. JSON 손상 시에도 위치 접근; 조회로 복구/변경하지 않음 |
+
+후보 선택은 등록 폼만 채우고 별도 저장으로 연결을 확정한다. 등록·편집·보관·핀·메모·관리 동작은 화면의 revision으로 조건부 커밋한다. 충돌 시 초안을 보존하고 명시적 재시도를 받는다. 고정은 변경 방지이며 사실 검증 표시가 아니다.
+
+## 세션 상세
+
+보고 ON/OFF·최근 활동·최근 보고·workspace·연결 태스크를 별개로 표시한다. 사용량은 세션 전체의 total input/new input/cache input/output과 측정 시각·출처다. input total에 cache가 포함되며 다시 더하거나 태스크별로 중복 배분하지 않는다. 없거나 모호한 metrics는 미확인이다.
+
+정확한 기존 탭 선택은 미지원이다. `ID 복사`와 이미 실행 중인 Devin 앱 활성화만 수행한다. session URL·ACP load·resume·프롬프트·세션 생성은 하지 않는다. 실행 실패와 복사 대체 동작을 보여준다.
+
+## 완료·자동 반영·확인 위치
+
+에이전트의 자유 진행 상태, 사용자의 태스크 lifecycle, 태스크 자동 반영은 서로 다르다. 허용 조합은 active/on, active/off, completed/off다. 완료 시 이전 자동 반영 값을 저장하고 OFF, 복원 시 그 값을 돌려준다. 태스크의 OFF가 공유 세션의 수집을 중단하지 않는다. 항목 보관을 태스크 완료로 간주하지 않는다.
+
+새 보고 반영은 완료/OFF 태스크에서 거절하고 이미 성공한 report ID 재생은 멱등 유지한다. 메모·핀·이력·리소스·연결은 보존한다. `여기까지 확인`은 표시된 최신 보고 위치만 확인하며 [독립 확인 위치 계약](UI_READ_CURSOR_CONTRACT.md)을 따른다.
+
+## 실패와 수용 범위
+
+수집 실패는 마지막 성공 시각과 진단을 제공한다. 파일 손상은 해당 태스크의 마지막 정상 기록 또는 정상 기록 없음으로 표시한다. 선택적 metrics/resource 부재를 수집 실패로 취급하지 않는다. 외부 링크는 OS 핸들러로 열고 실패하면 복사를 제공한다. WebView 자체는 외부로 탐색하지 않는다.
+
+실제 Mac에서 키보드·AX 라벨·light/dark·live refresh·충돌·입력 보존·오류/복구·재시작을 합성 fixture로 확인했다. 실제 VoiceOver 음성과 live agent 5–10개 동시 실행은 [백로그](BACKLOG.md)에 남아 있다. [초기 명세와 fixture 시나리오](history/UI_V2_SCREEN_SPEC_ORIGINAL.md), [S8 증거](slices/UI-V2-S8.md)를 현재 지원 보장과 구분한다.

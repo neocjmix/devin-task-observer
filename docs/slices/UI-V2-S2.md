@@ -1,17 +1,30 @@
-# UI-V2-S2 — task detail and safe interaction
+# UI-V2-S2 — 태스크 상세와 안전한 상호작용
 
-Baseline `3bbb037`; branch `p0/desktop-probe`, Draft PR #1.
+| 항목 | 내용 |
+|---|---|
+| 문서 유형 | 구현·검증 기록 |
+| 상태 | 해당 슬라이스의 당시 결과 (현재 상태는 [기준선](../BASELINE.md)) |
+| 기준 | 2026-10-31 · `3bbb037` |
+| 적용 범위 | UI-V2-S2: 태스크 상세·메모·핀·이력·쓰기 경계 |
 
-Implemented task detail with explicit situation/intervention/next-action/resume roles, free-form tracked values, item source/time, pin controls, evidence, linked-session drilldown, preserved notes/View and paginated before/after history. Candidate resources and legacy registered snapshots stay distinct. Existing v1 records without roles remain valid and are not automatically classified. Only a non-archived `role=intervention` item with `attention_required=true` contributes to the intervention count. New optional fields are preserved by reports and safe edits; older binaries do not understand newly populated fields, so keep the new reader when rolling back UI code.
+## 범위와 기준
 
-The local bridge accepts bounded JSON strings from its own main-frame document. Writes run on the worker, through existing task revision checks, receipts, history and pin protections. A draft keeps its starting revision; conflict retains text and requires an explicit retry. Task-specific DOM and callback state preserve input/scroll/disclosure and prevent late responses replacing another task. History reads deserialize a bounded page while holding the existing lock; oversized individual records produce an explicit error. No Devin writes or model calls were added.
+브랜치는 `p0/desktop-probe`, Draft PR #1이다. 아래는 S2 당시 증거이며 후속 구현 여부는 [현재 기준선](../BASELINE.md)을 따른다.
 
-## Verification (2026-10-31)
+## 구현 결과
 
-- 59 targeted Python tests passed, including actual CLI role round trips, OCC/pin/history and bounded UI requests. Core agent additionally ran cooperative CLI/integration regressions successfully.
-- Node helper and DOM tests passed, including actual Python Core→Projection→JS data, draft conflict/retry, late/duplicate responses and JSON-string bridge transport.
-- Actual Mac WKWebView: 7 synthetic tasks, intervention count 1, source-separated task details and candidates visible. Added a note through the actual UI; success was visible and persisted in revision 8. History retrieval displayed revisions 8 through 1. Existing note remained.
-- Actual testing found and fixed a role-name mismatch and WebKit numeric bridge conversion issue. Pure helper tests alone had not caught them.
-- A whole-working-tree run passed 325 tests with 2 opt-in model skips while the future, unconnected S5 adapter was also present. This is not the exact S2-only release count; final S8 reruns the complete committed tree.
+명시적인 situation/intervention/next-action/resume 역할, 자유 추적값, 항목 출처·시각, 핀, 근거, 연결 세션 상세, 기존 메모·View 보존, 페이지별 이전·이후 변경 이력을 구현했다. 리소스 후보와 기존 등록 스냅샷은 구분했다. 역할이 없는 v1 기록도 유효하며 자동 분류하지 않는다. 보관되지 않은 `role=intervention` 항목에 `attention_required=true`가 있을 때만 개입 개수에 포함한다. 새 선택 필드는 보고와 안전한 편집으로 보존한다. 이전 바이너리는 새 필드가 채워진 기록을 이해하지 못하므로 UI 코드를 되돌려도 새 reader를 유지해야 한다.
 
-The installed reporting skill in an existing Devin workspace is not silently replaced. Its updated repository instructions support role metadata for subsequent explicit installations. Existing sessions continue with general items until they report roles. Lifecycle, resource editing, token display and read cursors follow in S3–S7. Full native restart/accessibility acceptance remains S8.
+로컬 bridge는 자신의 main-frame 문서에서 제한된 크기의 JSON 문자열만 받는다. 쓰기는 작업 스레드에서 기존 태스크 revision 검사·receipt·이력·핀 보호를 거친다. 초안은 작성 시작 revision을 유지하고 충돌 시 텍스트를 보존하며 명시적 재시도를 요구한다. 태스크별 DOM과 callback 상태로 입력·스크롤·펼침을 보존하고 늦은 응답이 다른 태스크를 덮지 않게 했다. 이력은 기존 락 안에서 제한된 한 페이지만 역직렬화하며 너무 큰 단일 기록은 명시적 오류를 반환한다. Devin 쓰기나 모델 호출은 추가하지 않았다.
+
+## 검증 결과
+
+- 관련 Python 59개 통과: 실제 CLI 역할 왕복, OCC·핀·이력, UI 요청 한도. Core 담당 에이전트도 협조형 CLI·integration 회귀를 추가 통과했다.
+- Node helper·DOM 테스트 통과: 실제 Python Core→Projection→JS 데이터, 초안 충돌·재시도, 늦은·중복 응답, JSON 문자열 bridge 전송.
+- 실제 Mac WKWebView: 합성 태스크 7개, 개입 개수 1, 출처가 구분된 상세와 후보. 실제 UI로 메모를 추가해 성공 표시와 revision 8 저장을 확인했다. 이력에는 revision 8부터 1까지 표시됐고 기존 메모는 보존됐다.
+- 실제 검증에서 역할 이름 불일치와 WebKit 숫자 bridge 변환 문제를 발견해 수정했다. 순수 helper 테스트만으로는 발견하지 못했다.
+- 이후 S5의 아직 연결되지 않은 어댑터가 함께 있던 작업 트리 전체 실행에서는 325개 통과, 선택적 모델 2개 제외였다. 정확한 S2 단독 릴리스 수치는 아니며 최종 커밋 트리 전체 회귀는 S8에 기록했다.
+
+## 남은 제약
+
+기존 Devin 작업 공간에 설치된 보고 스킬은 조용히 교체하지 않는다. 저장소 지침의 역할 메타데이터는 후속 명시적 설치에서 사용할 수 있다. 기존 세션은 역할을 보고할 때까지 일반 항목을 계속 사용한다. S2 당시 lifecycle·리소스 편집·토큰 표시·확인 위치는 S3–S7 범위였고, 전체 네이티브 재시작·접근성 수용 검증은 S8로 넘겼다.

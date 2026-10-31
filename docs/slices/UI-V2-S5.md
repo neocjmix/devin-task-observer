@@ -1,17 +1,31 @@
-# UI-V2-S5 — session detail and retained token metrics
+# UI-V2-S5 — 세션 상세와 보존 기록의 토큰 지표
 
-Baseline `dc053b4`; branch `p0/desktop-probe`, Draft PR #1.
+| 항목 | 내용 |
+|---|---|
+| 문서 유형 | 구현·검증 기록 |
+| 상태 | 해당 슬라이스의 당시 결과 (현재 상태는 [기준선](../BASELINE.md)) |
+| 기준 | 2026-10-31 · `dc053b4` |
+| 적용 범위 | UI-V2-S5: 세션 상세·보고 설정·토큰 출처와 캐시 |
 
-Session detail separates activity, per-task last report, reporting preference/effective state, workspace and linked tasks. Reporting toggles use task OCC. Optional token metrics live once per session and are never allocated or added again across tasks.
+## 범위와 기준
 
-The dedicated reader uses the observed Devin Local SQLite schema 17 in read-only/query-only transactions. Actual native `input_tokens` means new input; total input is new plus cache reads. Deduplication uses (session ID, message ID), retaining node references. Conflicting repeated metrics, unsupported schema/cache creation, malformed values and missing metrics are unavailable rather than zero. Totals cover retained records, may include inherited fork history, and are not billing or guaranteed lifetime totals. Read time and source activity time remain separate.
+브랜치는 `p0/desktop-probe`, Draft PR #1이다. 아래는 S5 당시 증거이며 후속 구현 여부는 [현재 기준선](../BASELINE.md)을 따른다.
 
-The acquisition worker reuses one scope's cache for 15 seconds. Manual Refresh can force a read; state edits only refresh the projection. Failed reads retain same-scope last-good metrics with stale/error markers; changing source/workspace cannot expose the old scope's cache. Size/node/time bounds keep this optional read independent of normal session work.
+## 구현 결과
 
-## Verification (2026-10-31)
+세션 상세에서 활동, 태스크별 마지막 보고, 보고 설정·유효 상태, workspace와 연결 태스크를 구분했다. 보고 전환은 태스크 OCC를 사용한다. 선택적 토큰 지표는 세션당 한 번만 유지하고 여러 태스크에 나누거나 중복 합산하지 않는다.
 
-- 61 focused Python tests passed: 26 reader/cache tests plus projection, actions and host regressions.
-- Actual existing personal synthetic Devin workspace: 32 nodes deduplicated to 16 messages; total input 317,590 = new 10,902 + cached 306,688; output 2,485. These exactly matched the retained ATIF export. No new model calls or prompts.
-- Actual acquisition pipeline against isolated synthetic source: 8 sessions; first session total 1,101 = new 101 + cached 1,000, output 41. Source database hash unchanged after read.
-- Frontend helper/DOM regressions cover unavailable/stale metrics, activity versus report time, shared-session reporting controls and candidate evidence scoped to the explicitly selected task. Candidates from unrelated sessions remain globally visible but are not attached as that task's evidence.
-- Final native session-detail interaction belongs to S8 acceptance. Real metrics verification above is a source/adapter check, not a claim of live UI acceptance or full billing accuracy.
+전용 reader는 실제 관측한 Devin Local SQLite schema 17을 읽기 전용·query-only 트랜잭션으로 조회한다. 실제 `input_tokens`는 신규 입력이며 총 입력은 신규 입력과 cache read의 합이다. (세션 ID, 메시지 ID)로 중복 제거하고 node 참조를 보존한다. 반복된 지표가 상충하거나 schema/cache creation이 미지원이거나 값이 잘못되거나 빠지면 0 대신 unavailable로 표시한다. 합계는 보존 기록 범위이며 fork 상속 이력을 포함할 수 있다. 과금 또는 평생 총량을 보증하지 않는다. 조회 시각과 원본 활동 시각은 분리한다.
+
+데이터 획득 작업 스레드는 같은 범위의 캐시를 15초간 재사용한다. 수동 Refresh는 강제 조회할 수 있고 상태 편집은 투영만 갱신한다. 조회 실패 시 같은 범위의 마지막 정상 지표를 stale·error와 함께 보존한다. 원본·workspace가 바뀌면 이전 범위의 캐시를 노출하지 않는다. 크기·node·시간 한도를 두어 선택적 읽기가 정상 세션 작업과 독립적으로 동작하게 했다.
+
+## 검증 결과
+
+- 관련 Python 61개 통과: reader·cache 26개와 투영·action·호스트 회귀.
+- 실제 개인 합성 Devin 작업 공간: node 32개를 메시지 16개로 중복 제거. 총 입력 317,590 = 신규 10,902 + 캐시 306,688, 출력 2,485로 보존된 ATIF export와 정확히 일치했다. 새 모델 호출이나 프롬프트는 없었다.
+- 격리된 합성 원본의 실제 데이터 획득 파이프라인: 세션 8개, 첫 세션 총 입력 1,101 = 신규 101 + 캐시 1,000, 출력 41. 읽기 전후 원본 DB 해시가 같았다.
+- 프런트엔드 helper·DOM 회귀: unavailable/stale 지표, 활동·보고 시각 구분, 공유 세션 보고 설정, 명시적으로 선택한 태스크의 후보 근거 범위. 무관한 세션의 후보는 전역에 보이더라도 해당 태스크 근거에 붙이지 않는다.
+
+## 남은 제약
+
+최종 네이티브 세션 상세 조작은 S8 수용 검증으로 넘겼다. 위 실제 지표 검증은 원본·어댑터 검사이며 실제 UI 수용 완료나 과금 정확성 전체를 검증했다는 뜻이 아니다.

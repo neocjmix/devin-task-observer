@@ -1,14 +1,29 @@
-# UI-V2-S3 — persistent resources
+# UI-V2-S3 — 지속 보존 리소스
 
-Baseline `571bde0`; branch `p0/desktop-probe`, Draft PR #1.
+| 항목 | 내용 |
+|---|---|
+| 문서 유형 | 구현·검증 기록 |
+| 상태 | 해당 슬라이스의 당시 결과 (현재 상태는 [기준선](../BASELINE.md)) |
+| 기준 | 2026-10-31 · `571bde0` |
+| 적용 범위 | UI-V2-S3: 리소스 등록·수정·보관·열기·복사 |
 
-Added optional task-local registered resources with issue/document/environment/repository/branch/PR/communication/deliverable/other categories. Free-form values remain supported. Registration/edit/archive/restore use existing OCC and receipts; source, creation time, evidence, notes, pins and history survive. Candidate selection only fills a form; a separate explicit save confirms the task association. Node/hash/workspace/source references are retained. External status remains `unknown`, including manually registered PRs. Legacy snapshots remain separately read-only.
+## 범위와 기준
 
-The UI resolves open/copy targets from the saved task resource ID, never from a submitted shell command. HTTP(S) uses the OS handler. Existing md/txt/json/yaml/yml/pdf/csv documents can open; other types and failures retain copy fallback. The embedded view cannot navigate externally. OS operation failure is reported as failure, not merely a successful dispatch.
+브랜치는 `p0/desktop-probe`, Draft PR #1이다. 아래는 S3 당시 증거이며 후속 구현 여부는 [현재 기준선](../BASELINE.md)을 따른다.
 
-## Verification (2026-10-31)
+## 구현 결과
 
-- 55 focused Python tests passed: resources, actions, native target policy, roles and projection regressions. Core also passed broader CLI/cooperative regression checks.
-- Node helper/DOM and actual Core→Projection boundary checks passed, including explicit candidate registration, evidence preservation, edit conflicts, archive/restore and open failure/copy fallback.
-- Actual Mac popover: existing Markdown resource appeared under 산출물; path copy succeeded through NSPasteboard. Registered a new HTTPS resource through the actual form; a saved row and success message appeared. Existing candidates remained candidates.
-- File/URL OS opening is policy-tested with injected success/failure; full native opening and final app restart checks follow in S8. No remote URL status verification, model calls or Devin writes.
+태스크별 선택적 등록 리소스를 추가했다. 분류는 issue/document/environment/repository/branch/PR/communication/deliverable/other이며 자유값도 지원한다. 등록·편집·보관·복원은 기존 OCC와 receipt를 사용하고 출처·생성 시각·근거·메모·핀·이력을 보존한다. 후보 선택은 양식만 채우며 별도의 명시적 저장으로 태스크 연결을 확정한다. node/hash/workspace/source 참조는 유지한다. 사람이 등록한 PR을 포함해 외부 상태는 `unknown`이며 기존 스냅샷은 별도 읽기 전용으로 둔다.
+
+열기·복사 대상은 저장된 태스크 리소스 ID로 결정하며 전달받은 shell 명령을 사용하지 않는다. HTTP(S)는 OS handler를 사용한다. 존재하는 md/txt/json/yaml/yml/pdf/csv 문서는 열 수 있고 다른 형식이나 실패에는 복사 대안을 제공한다. 내장 화면은 외부로 탐색하지 못한다. OS 동작 실패는 단순 전달 성공으로 처리하지 않고 실패로 표시한다.
+
+## 검증 결과
+
+- 관련 Python 55개 통과: 리소스, action, native target 정책, 역할·투영 회귀. Core는 더 넓은 CLI·협조형 회귀도 통과했다.
+- Node helper·DOM 및 실제 Core→Projection 경계 검사 통과: 명시적 후보 등록, 근거 보존, 편집 충돌, 보관·복원, 열기 실패·복사 대안.
+- 실제 Mac 팝오버: 기존 Markdown 리소스가 산출물에 표시됐고 NSPasteboard 경로 복사에 성공했다. 실제 양식으로 새 HTTPS 리소스를 등록해 저장된 행과 성공 메시지를 확인했다. 기존 후보는 후보로 유지됐다.
+- 파일·URL의 OS 열기 정책은 성공·실패를 주입해 테스트했다. 실제 네이티브 열기와 최종 앱 재시작은 S8 검증으로 넘겼다.
+
+## 남은 제약
+
+S3 당시 실제 OS 열기 전체 흐름을 검증했다고 주장하지 않았다. 원격 URL 상태 검증·모델 호출·Devin 쓰기는 수행하지 않았다.

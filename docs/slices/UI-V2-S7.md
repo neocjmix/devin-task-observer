@@ -1,14 +1,28 @@
-# UI-V2-S7 — explicit read positions and task ordering
+# UI-V2-S7 — 명시적 확인 위치와 태스크 정렬
 
-Baseline `f16bd10`; branch `p0/desktop-probe`, Draft PR #1.
+| 항목 | 내용 |
+|---|---|
+| 문서 유형 | 구현·검증 기록 |
+| 상태 | 해당 슬라이스의 당시 결과 (현재 상태는 [기준선](../BASELINE.md)) |
+| 기준 | 2026-10-31 · `f16bd10` |
+| 적용 범위 | UI-V2-S7: 새 보고 확인 위치·개수·정렬 |
 
-Accepted session reports stamp optional `last_report_revision`; human notes, pins, settings and resources do not move it. UI read positions live separately in `ui/read-cursors.json`, with a published schema and their own revision. Acknowledging the displayed report uses the existing short FileStore lock and atomic replacement, checks task/reported revision, and never changes task revision or causes a reporting conflict merely because the UI was read. Existing records without a report position remain unknown until a new report, rather than inferring history from timestamps.
+## 범위와 기준
 
-The home counts tasks with new reports, not an invented number of report events. Explicit intervention sorts first, then unread, then known report recency. Opening the popover/task or refreshing never acknowledges it. The user explicitly chooses “여기까지 확인”. Shared sessions retain independent task read positions. Corrupt or future cursors remain visible errors; raw files and task reports continue to be preserved.
+브랜치는 `p0/desktop-probe`, Draft PR #1이다. 아래는 S7 당시 증거이며 후속 구현 여부는 [현재 기준선](../BASELINE.md)을 따른다. 별도 스키마·동시성 경계는 [확인 위치 계약](../UI_READ_CURSOR_CONTRACT.md)에 있다.
 
-## Verification (2026-10-31)
+## 구현 결과
 
-- 45 focused Python tests passed: cursor, UI actions, projection and host. The 12 cursor tests include thread races with a real common lock, restart, old-format unknowns, stale revisions, repeated acknowledgement and damaged file preservation.
-- Broader cooperative/CLI regression checks passed during implementation.
-- Frontend tests exercise explicit-only acknowledgement and preserve drafts/navigation. Final actual native read-button, later-report and restart acceptance is recorded in S8.
-- See [read cursor contract](../UI_READ_CURSOR_CONTRACT.md) for the separate schema and concurrency boundary.
+수용된 세션 보고는 선택적 `last_report_revision`을 기록하고 인간 메모·핀·설정·리소스 변경은 이를 움직이지 않는다. UI 확인 위치는 `ui/read-cursors.json`에 별도 revision과 공개 스키마로 보존한다. 표시된 보고를 확인할 때 기존 FileStore의 짧은 락과 원자적 교체를 사용하고 태스크·보고 revision을 검사한다. 태스크 revision을 바꾸지 않으므로 UI를 읽었다는 이유만으로 보고 충돌을 만들지 않는다. 보고 위치가 없는 기존 기록은 시각에서 이력을 추론하지 않고 새 보고 전까지 미확인으로 둔다.
+
+홈은 임의로 만든 보고 이벤트 수가 아니라 새 보고가 있는 태스크 수를 센다. 명시적 개입, 미확인, 알려진 보고 최신순으로 정렬한다. 팝오버·태스크 열기나 새로고침은 확인 처리를 하지 않는다. 사용자가 `여기까지 확인`을 명시적으로 선택한다. 공유 세션도 태스크별 확인 위치는 독립적이다. 손상·미래 cursor는 오류로 드러내며 원본 파일과 태스크 보고를 보존한다.
+
+## 검증 결과
+
+- 관련 Python 45개 통과: cursor, UI action, 투영, 호스트. cursor 12개에는 실제 공통 락의 스레드 경쟁, 재시작, 구형 기록의 미확인 상태, 오래된 revision, 반복 확인, 손상 파일 보존을 포함한다.
+- 구현 중 더 넓은 협조형·CLI 회귀도 통과했다.
+- 프런트엔드 테스트에서 명시적 확인만 허용하고 초안·탐색을 보존하는지 검사했다. 실제 네이티브 확인 버튼·후속 보고·재시작 수용 결과는 S8에 기록했다.
+
+## 남은 제약
+
+S7 단위·프런트엔드 결과를 실제 네이티브 수용 증거로 대체하지 않았다. 보고 위치가 없는 과거 기록은 당시에도 미확인으로 남겼다.

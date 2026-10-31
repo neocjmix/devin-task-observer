@@ -1,73 +1,56 @@
-# Data and Reconciliation Specification
+# 데이터와 보고 처리 계약
 
-## M3 storage and reporting contract (2026-10-30)
+| 항목 | 내용 |
+|---|---|
+| 문서 유형 | 현재 설계 계약 |
+| 상태 | 구현 기준과 일치 |
+| 기준 | [2026-10-31 고정 기준선](BASELINE.md) |
+| 적용 범위 | M3 파일 상태·읽기 전용 관측·UI 경계 |
 
-새 보고 경로는 파일 원본·조건부 커밋·명시적 고정값 보호를 따른다. [S01](slices/M3-S01.md)은 저장/CLI, [S02](slices/M3-S02.md)는 실제 세션 전달/메뉴, [S03](slices/M3-S03.md)은 기존 자료의 명시적 이관이다. task 스키마의 선택적 legacy 영역은 가져온 View·리소스·커서 원형을 보존한다. 이관 당시 값은 legacy_import, 이후 세션이 보고한 항목은 reported다. hooks의 context/activity는 세션 ID·시각·이벤트만 저장하고 대화/압축 요약을 복제하지 않는다. 원본 관측과 보고 state revision은 분리한다.
+## 데이터 흐름
 
-후속 확정된 [상태 트랜잭션 계약](STATE_TRANSACTION_CONTRACT_2026-10-30_KO.md)은 낙관적 읽기–판단–커밋, 세션별 항목 정의·업데이트 출처, 명시적 고정값 보호를 정한다. 미래 설계에서는 사람이 수정한 추적값도 고정하지 않았다면 후속 유효 보고로 갱신할 수 있고 메모·변경 이력은 항상 보존한다. 이 정책은 새 M3 경로에 적용한다. 아래 기존 M2의 인간 소유 전환·보호 규칙은 보존 중인 기존 런타임의 계약이다.
+```text
+Devin Local 원본 → 읽기 전용 수집 → Observer SQLite 관측·체크포인트
+작업 세션 → 설치 스킬·CLI → JSON Schema·OCC 검증 → 파일 태스크·이력
+두 저장소의 읽기 투영 → Python/PyObjC → 로컬 HTML/JS 팝오버
+```
 
-**아래 `normative`를 포함한 P0~M2 본문은 역사적 범위다.** 새 보고 경로에서는 세션이 의미를 조정하며 최신 유효 커밋을 사용한다. 기존 모델 패치·의미 커서와 새 보고 revision을 같은 상태로 혼용하지 않는다.
+별도 LLM 의미 분석은 기본 경로가 아니다. 현재 시스템에서 의미 판단·추적 항목 정의·충돌 재판단은 해당 작업 세션이 맡는다. 결정론적 Core는 형식·출처 참조·태스크 범위·revision·고정·중복을 검사하며 내용의 진실성을 인증하지 않는다.
 
-## Entities
+## 저장 경계
 
-Task(id,title,description,lifecycle,createdAt,updatedAt); Session(id,provider,externalId,model,runtimeState,lastSeen,sourceVersion); Contribution(id,taskId,sessionId,role,scope,linkedBy,confidence,from,to) permits many-to-many relationships.
+| 위치 | 저장 내용 | 갱신 주체 |
+|---|---|---|
+| `config.json` | 선택한 개인 workspace, 원본/관측 DB 등 설정 | 명시적 설정 |
+| `observer.sqlite3` | 세션 메타데이터, 해시·관측·checkpoint, 추출 후보·계획·수집 상태 | 결정론적 수집기 |
+| `state/tasks/<id>/state.json` | 정의·기여 세션·추적값·출처·메모·핀·View·등록 리소스·관리 설정 | 공통 Core의 검증된 커밋 |
+| 태스크 `history/` | 커밋별 이전/현재 상태 | 공통 Core |
+| `state/reports/`, `.transactions/` | 중복 방지 영수증, prepared journal | 공통 Core |
+| `state/sessions/`, `integrations/` | 실제 훅 ID·활동, 설치 소유권 | 허용된 작업 공간의 최소 훅·설치 도구 |
+| `state/ui/read-cursors.json` | 태스크별 명시적 확인 위치 | 사용자 확인; 태스크 revision과 분리 |
 
-Resource(id,taskId,kind,uri,repo,branch,externalStatus,verifiedAt) links tickets, PRs, repositories, worktrees, commits, tests and documents. Observation(id,sessionId,sourceKey,sequence,kind,contentHash,sourceRef,observedAt) is an immutable normalized event. Checkpoint(sessionId,sourceFingerprint,adapterVersion,lastStableKey,prefixHashes,lastCommittedAt) is persisted transactionally.
+기본 상위 폴더는 `~/.devin-task-observer/`다. [공통 경로](../observer/paths.py)와 명시적 옵션을 사용한다. 원본 대화 본문을 일괄 보관하지 않지만 추출한 텍스트와 세션 보고는 민감한 로컬 자료로 취급한다.
 
-TaskView(id,taskId,revision,sections) contains stable section IDs and ordering. ViewItem(id,sectionId,content,status,evidenceRefs,origin,confidence,pinned,createdAt,updatedAt,supersededBy) is durable. ReconcileProposal(id,taskId,expectedRevision,patch,model,tokenUsage,validationStatus) is validated before applying.
+## 공유 태스크와 최신 상태
 
-## Incremental sync invariants
+태스크와 세션은 다대다다. 각 세션이 기존 항목을 읽고 추적 정의를 만들거나 재사용한다. 항목의 ID·revision·updated_by·시각·근거를 보존한다. 제목이나 시각만으로 다른 항목을 자동 병합하지 않는다.
 
-Discover actual Devin Desktop sources rather than assuming CLI storage layout. Read-only snapshots must tolerate concurrent writers. Normalize user, assistant, tool_call, tool_result, plan and unknown events. Prefer verified stable message IDs; fall back to anchored content hashes and common prefix/suffix checks. Byte offsets alone are unsafe for rewritten JSON.
+마지막으로 성공한 유효 커밋을 현재값으로 사용한다. 이전 상태를 읽은 writer는 revision 충돌로 거절한다. 사람이 직접 고친 추적값도 **고정하지 않았다면** 후속 보고로 바뀔 수 있으며 이전 값은 이력에 남는다. 명시적 핀·메모·확인 위치를 에이전트가 덮어쓰지 않는다. 정확한 절차는 [트랜잭션 계약](STATE_TRANSACTION_CONTRACT.md)을 따른다.
 
-Test append, same-length edit, rewrite, truncation, reordering, compaction, duplicates, missing records, malformed JSON, SQLite locking and crash between observation persistence and checkpoint. Persist derived state and checkpoint atomically. Replay is idempotent; ambiguous divergence is surfaced, not silently skipped.
+## 관측·후보·보고의 구분
 
-Hooks or file watchers are optional wake signals. Polling and manual refresh always work. Debounce bursts. If a source disappears, preserve last-known state with stale timestamp.
+- 관측 이벤트·checkpoint는 같은 SQLite 트랜잭션으로 기록한다. 확인한 schema 17 밖의 원본 구조는 추측해 해석하지 않는다.
+- 동일한 중복 노드와 모호한 ID/원본 변경을 구분한다. 원본 해석 불가·일부 불확실·마지막 정상 기록을 숨기지 않는다. 완전한 대화 시간순 복원은 보장하지 않는다.
+- 발견한 티켓·PR·저장소·브랜치는 후보이며 등록된 태스크 리소스와 구분한다. 공유 세션이나 workspace만으로 배타적 태스크 소속을 확정하지 않는다. 외부 API 미검증 상태는 `unknown`이다.
+- `todo_write`는 확인한 구조만 읽고 세션별 계획·근거를 유지한다. 에이전트 완료 보고는 실제 완료 검증과 다르다.
+- 활동 시각·보고 시각·수집 성공 시각은 서로 다르다. 보고 ON이나 정상 수집만으로 의미 상태가 최신이라고 판정하지 않는다.
 
-## Stable views
+## 검증과 장애 처리
 
-Templates may cover implementation, investigation, design and incident response, but sections remain task-specific and freely composable. Keep section/item IDs, order, user edits and pinned content. No whole-view rewrite, destructive deletion or silent merge. Use superseded/retracted states. Uncategorized findings go to Inbox. Structural changes require approval. Conflicting claims coexist and link to provenance.
+스키마는 [cooperative-v1](../schemas/cooperative-v1/)과 [UI 확인 위치](../schemas/ui-v2/read-cursors.schema.json)에 있다. 안전한 직접 편집은 `edit-export → validate → edit-apply`를 사용한다. 규약 밖 수정은 원문을 보존하고 현재/last_good/오류를 구분한다. 판별 가능한 손상은 해당 범위로 제한하고, 복구 journal의 영향 범위를 모르면 접근을 중단한다.
 
-## Semantic patch contract
+판단·모델·네트워크 작업을 커밋 락 안에서 실행하지 않는다. 이전된 root는 원래 락 안에서 marker를 확인하고 새 위치 안내로 거절한다. 같은 사용자 권한의 임의 writer까지 통제하는 보안 경계는 아니다.
 
-Inputs: only relevant new normalized events, affected existing ViewItems, the view contract and evidence references. Output: bounded add/update-status/attach-evidence/supersede/propose-section operations. Check expected revision, IDs, evidence, permissions and non-destructive constraints. Rejected patches are retained for diagnosis.
+## 유지하는 이전 경로
 
-Do not equate agent claims with externally verified completion. PR/ticket status is authoritative only when fetched from approved external API. Never fabricate progress percentages.
-
-
-## Implemented M1 subset
-
-The existing Resource remains the human-confirmed task connection. M1 adds small discovered-resource fact, task-choice and Git-observation tables for candidates/provenance, one plan-record table for the observed structured snapshots, and persisted collector health. It does not implement generic claims, a plugin system or semantic patch reconciliation. Raw transcripts are not archived, but extracted resource values and plan text/status are retained locally as sensitive derived data. See [M1 implementation and validation](M1_PROGRESS.md).
-
-
-## M2 normative semantic state protocol
-
-The **Task** is the unit of semantic reconciliation; one task may draw from many sessions, and one session may contribute to several tasks. Maintain distinct collector and semantic cursors per task/session contribution. Source reordering, compaction or missing evidence must not silently advance semantic progress.
-
-Input is a bounded delta bundle with stable evidence references, provenance, affected view items and the current per-task View Contract. Structured extraction precedes model interpretation. For ambiguous order, provide explicit uncertainty rather than inventing chronology. The model proposes *operations*, not a rewritten document.
-
-Supported conceptual operations: add evidence-backed item, update machine-owned item status, attach evidence, supersede machine-owned claim, propose new section, flag contradiction and no-change. The Core checks item IDs, expected revision, source scope, evidence availability, ownership, conflict policy and deduplication key. Machine-generated material is stored separately from human-owned items; a user correction becomes authoritative for that item until explicitly changed by the user. Never delete, overwrite pinned content or silently reconcile contradictions.
-
-Use deterministic idempotency keys tied to task, source delta identity, view revision and operation identity. Commit accepted effects and semantic cursor transactionally. On rejection or failure, retain pending delta and explicit semantic staleness; do not claim freshness. A no-change result may advance the cursor only when durably recorded. Previously interpreted facts may need retraction when their source changes: mark disputed/superseded, do not erase history.
-
-Policy: safe additive evidence-backed updates can auto-apply to machine-owned projection. Human approval is reserved for view structure changes, destructive effects, uncertain conflict resolution and changes to human-authored content. Confidence scores alone never constitute verification. A claim's evidence may be agent-reported rather than independently verified; keep this distinction in UI.
-
-Cost: zero-token reads; no LLM for unchanged input; manual semantic refresh first; per-task/daily hard budgets; cache by relevant delta + view revision + model/prompt version; persist usage and freshness. The current P4 single-node Ollama proposal is a plumbing experiment, **not** this protocol.
-
-
-## Semantic model adapter contract (normative)
-
-`analyze({taskId,viewRevision,viewContract,affectedItems,evidenceDelta,limits}) -> {proposal,usage,providerRunId,diagnostics}`.
-
-Provider implementations: `CodexExecAdapter` for personal development/tests, `DevinAcpAdapter` for internal production. Adapters must not own state, mutate task views, or contact existing work sessions. A separate isolated analysis run/session receives only bounded, selected evidence; tool/permission requests must be denied unless specifically needed and approved.
-
-Use a strict, versioned patch JSON schema and validate output again in the deterministic Core. Include stable evidence IDs, expected revision, operation IDs, uncertainty and source attribution. Usage may be unavailable: represent it as unknown rather than zero. Enforce hard limits before starting a run where measurable; when provider quotas cannot be guaranteed, expose this limitation and fail safely under configured call limits.
-
-Codex CLI: noninteractive execution, isolated working directory, bounded prompt, output artifact, timeout and exit-status checks; do not assume token usage is always present. Devin ACP: negotiate capabilities, create a **new analysis session**, submit prompt, consume streamed chunks to a terminal result, reject unauthorized tool requests, handle disconnects, timeouts, cancellation and unsupported functionality. Session creation/streaming details must be verified against installed Devin implementation before enabling it.
-
-No semantic checkpoint advancement until an accepted patch or durable no-change result commits. Never replay an analysis output as a trusted fact merely because it conforms to JSON schema.
-
-
-## M2 implementation record (2026-10-29)
-
-The bounded manual semantic vertical slice is implemented on the existing branch. Personal Codex exec was run with two synthetic session sources and with actual synthetic Devin Desktop sessions through the browser. Safe machine-owned patches, separate semantic cursors, human preservation, usage/budgets, retry and failure isolation are implemented. After an initial auth failure, personal browser reauthentication succeeded and actual Devin ACP new-session streaming plus the two-session patch integration test passed. Dangerous tool denial is mock-tested and internal organizational policy/isolation still require target-environment signoff. This does not close the real-work dogfood/product-quality gate. See [M2 implementation, measured usage, acceptance evidence and limitations](M2_PROGRESS.md). The contracts above remain the baseline for the retained M2 runtime; M3 follows the newer contracts linked at the top.
+SQLite 태스크·웹 UI·M2 SemanticModelAdapter는 별도 보존 코드다. [당시 데이터 계약](history/DATA_AND_RECONCILIATION_P0_M2.md)의 인간 소유 전환·의미 커서를 현재 보고 상태와 혼용하지 않는다. 명시적 legacy 이관은 원본 백업과 스냅샷을 보존하며 자동 병합·양방향 동기화는 하지 않는다.

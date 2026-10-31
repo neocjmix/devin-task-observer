@@ -1,15 +1,29 @@
-# UI-V2-S4 — lifecycle and task observation
+# UI-V2-S4 — 태스크 완료·복원과 관측 설정
 
-Baseline `59fbfa3`; branch `p0/desktop-probe`, Draft PR #1.
+| 항목 | 내용 |
+|---|---|
+| 문서 유형 | 구현·검증 기록 |
+| 상태 | 해당 슬라이스의 당시 결과 (현재 상태는 [기준선](../BASELINE.md)) |
+| 기준 | 2026-10-31 · `59fbfa3` |
+| 적용 범위 | UI-V2-S4: lifecycle·태스크 관측 설정·보관 필터 |
 
-Added user-managed active/completed lifecycle and task-specific observation preference. Missing v1 management fields mean active/on without rewriting old files. Completion stores the previous preference and disables task reflection; restoration restores that preference. Repeated completion cannot overwrite it. Completed/on is invalid. Agent-reported status and item archive never complete a task.
+## 범위와 기준
 
-Session reporting preferences, task-session links, tracked values, notes, pins, resources and history survive. New reports to completed/off tasks are rejected explicitly, while existing receipt replays remain idempotent. No post-completion report is silently accepted as new history. Live candidate associations and task-plan entry points are omitted for off/completed tasks; global session collection continues, including for other linked tasks. The settings therefore stop task reflection, not the shared observer process.
+브랜치는 `p0/desktop-probe`, Draft PR #1이다. 아래는 S4 당시 증거이며 후속 구현 여부는 [현재 기준선](../BASELINE.md)을 따른다.
 
-Home now separates active and archived tasks. Bottom task controls use OCC. Hook guidance and repository skill explain effective reporting; installed skills are not silently rewritten.
+## 구현 결과
 
-## Verification (2026-10-31)
+사용자가 관리하는 active/completed lifecycle과 태스크별 관측 설정을 추가했다. v1 management 필드가 없으면 기존 파일을 다시 쓰지 않고 active/on으로 해석한다. 완료 시 이전 설정을 저장하고 태스크 반영을 끄며 복원 시 그 설정을 복원한다. 반복 완료로 이전 설정을 덮어쓸 수 없다. completed/on은 유효하지 않으며 에이전트 보고 상태나 항목 보관으로 태스크를 완료하지 않는다.
 
-- 73 focused Python tests passed: 13 management tests plus 60 actions/resource/role/projection/integration regressions. Actual CLI lifecycle/observation commands and shared-session collection are included.
-- Node helper/DOM and actual Python Core→Projection tests passed: off→complete→restore stays off, existing content survives, only explicit lifecycle drives archive filtering, pending notes survive updates.
-- Native GUI controls are implemented; their actual click/restart acceptance is scheduled in S8, not claimed from these unit/DOM tests.
+세션 보고 설정, 태스크–세션 연결, 추적값, 메모, 핀, 리소스와 이력은 보존한다. 완료·관측 OFF 태스크의 새 보고는 명시적으로 거절하고 기존 receipt 재생은 멱등성을 유지한다. 완료 후 새 보고를 새 이력으로 조용히 수용하지 않는다. 관측 OFF·완료 태스크에는 현재 후보 연결과 태스크 계획 진입점을 제외하지만 공유 세션의 전역 수집은 다른 연결 태스크를 위해 계속된다. 따라서 공유 관측 프로세스 전체가 아니라 해당 태스크 반영을 중단한다.
+
+홈은 활성·보관 태스크를 분리했다. 당시 태스크 하단 관리 기능은 OCC를 사용했다. 훅 안내와 저장소 스킬은 유효 보고 조건을 설명하며 설치된 스킬을 조용히 다시 쓰지 않는다.
+
+## 검증 결과
+
+- 관련 Python 73개 통과: 관리 13개와 action·리소스·역할·투영·integration 회귀 60개. 실제 CLI lifecycle·observation 명령과 공유 세션 수집을 포함한다.
+- Node helper·DOM 및 실제 Python Core→Projection 검사 통과: OFF→완료→복원 시 OFF 유지, 기존 내용 보존, 명시적 lifecycle만 보관 필터에 반영, 갱신 중 메모 초안 보존.
+
+## 남은 제약
+
+네이티브 GUI 관리 기능은 구현했지만 실제 클릭·재시작 수용 검증은 S8로 넘겼다. 단위·DOM 테스트를 실제 네이티브 조작 성공으로 주장하지 않았다.

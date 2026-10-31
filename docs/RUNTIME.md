@@ -60,7 +60,11 @@ Devin에서 `observer-reporting 스킬로 my-task 자동 보고를 시작해`라
 
 활성 설치는 `~/.devin-task-observer/`를 사용한다. 경로 변경 시 앱·수집을 중지하고 기존 락 안에서 상태·설정·SQLite의 일관된 백업과 복사를 수행해야 한다. 훅·스킬·설치 소유권·프로젝트 로컬 권한·앱 바인딩의 절대 경로도 함께 맞춰야 한다.
 
-옛 root에는 원래 `.lock`과 `.relocated.json`을 남겨 협력 writer를 `relocated_store`로 거절한다. symlink나 자동 전달을 사용하지 않는다. 태스크·이력·영수증은 보존하고, 다음 정상 훅이 새 문맥을 전달하도록 활동 메타데이터를 준비한다. 범용 root 이동 명령은 제공하지 않는다. 기존 세션의 캐시된 경로 갱신 검증은 [B01](BACKLOG.md)에 남아 있다.
+옛 root에는 원래 `.lock`과 `.relocated.json`을 남겨 협력 writer를 `relocated_store`로 거절한다. symlink나 자동 전달을 사용하지 않는다. 태스크·이력·영수증은 보존하고, 다음 정상 훅이 새 문맥을 전달하도록 활동 메타데이터를 준비한다. 범용 root 이동 명령은 제공하지 않는다.
+
+검증한 Desktop 3.10.67에서는 열린 창이 옛 훅·context를 유지했다. 진행 중 작업이 끝난 뒤 해당 창의 `Developer: Reload Window`로 설정을 다시 읽으면 기존 세션 ID를 유지하며 새 경로의 SessionStart 훅이 전달된다. 실제 `/compact` 완료 후 PostCompaction이 재전달을 예약하고, 다음 UserPromptSubmit에서 새 context로 식별·조회·보고가 이어지는 것을 확인했다.
+
+경로 갱신과 명령 승인은 별개다. Python 인터프리터를 앞에 붙인 실행은 CLI 직접 실행의 허용 규칙과 다를 수 있다. 설치된 CLI의 절대 경로를 직접 사용하는 형태에서 기존 workspace 규칙으로 validate·report·read가 추가 승인 없이 진행되는 것을 확인했다. 허용 규칙에 맞지 않는 명령은 Devin의 정상 승인을 받아야 하며 Observer가 권한을 확대하거나 승인을 우회하지 않는다. 검증 범위는 [기준선](BASELINE.md)을 따른다.
 
 ## SQLite 태스크 이관
 

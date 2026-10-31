@@ -42,10 +42,12 @@
 | 실제 Devin 개인 합성 세션 | 훅 ID·스킬·후속 보고·충돌 재판단·메모·핀 보호 | 일상 사용의 누락률·정확성은 미측정 |
 | 실제 Mac + 합성 데이터 | 8 source session/7 task, 입력 보존·충돌·리소스·관리·확인 위치·light/dark·AX·오류/복구·재시작 | 8개 live agent 동시 실행과 다름 |
 | 실제 원본 읽기 | Desktop 3.10.67 개인 합성 4세션 사용량, DB/WAL 읽기 전후 불변 | 다른 provider/schema·과금 총량 미보장 |
-| 상태 위치 이전 | 태스크·이력·영수증 보존, SQLite 내용·무결성, 설치 두 곳, 재실행·수집·Finder 새 경로 | 기존 실행 세션의 경로/권한 캐시 재인식은 미검증 |
-| 설치 상태 점검 | 앱·서비스 실행, 수집 성공·오류 없음, 태스크 revision 18/항목 6/연결 3/메모 1 | 읽기 전용 점검이며 새 보고 턴 검증 아님 |
+| 상태 위치 이전 | 태스크·이력·영수증 보존, SQLite 내용·무결성, 설치 두 곳, 재실행·수집·Finder 새 경로 | root 이동 명령은 제공하지 않음 |
+| 기존 세션 보고 연속성 | 동일 개인 합성 세션이 새 저장소에 보고해 revision 18→19, 창 재로드·실제 압축 후 새 context로 다시 보고해 20. SessionStart→PostCompaction→UserPromptSubmit 확인 | Desktop 3.10.67의 해당 세션에서 확인. 재로드 전 옛 context 사용과 단일 명령 승인 5회, 재로드 후 Python wrapper 승인·조회 명령 형태 조정이 있었으며 승인 없는 전환을 보장하지 않음 |
+| 보호·회귀 | 기존 항목 6개·핀·메모·View·리소스·관리·다른 기여 보존, 기존 root 보고 거절·해시 불변, Python 파일·workspace 권한 불변. integration 12개·relocation 6개 통과 | 검증 항목 하나를 추가·갱신했으며 합성 파서의 알려진 실패는 수정하지 않음 |
+| 설치 상태 점검 | 수집 성공·오류 없음, 태스크 revision 20/항목 7/연결 3/메모 1 | 새 보고 확인은 실제 Devin UI·CLI·파일로 검증; 이번 Observer 팝오버 연결은 CUA timeout으로 추가 화면 검증하지 못함 |
 
-자동 회귀 로그는 로컬 `~/devin-observer-research-lab/2026-10-31-baseline-3ed1955/`의 `python-tests.log`, `node-tests.log`, `runtime-readonly.json`에 있다. GUI 증거는 `~/devin-observer-research-lab/2026-10-31-ui-v2/evidence/`, 데이터 이전 검증·백업은 `~/devin-observer-research-lab/2026-10-31-state-home/`에 있다. 이 비공개 자료는 커밋하지 않는다.
+자동 회귀 로그는 로컬 `~/devin-observer-research-lab/2026-10-31-baseline-3ed1955/`의 `python-tests.log`, `node-tests.log`, `runtime-readonly.json`에 있다. GUI 증거는 `~/devin-observer-research-lab/2026-10-31-ui-v2/evidence/`, 데이터 이전 검증·백업은 `~/devin-observer-research-lab/2026-10-31-state-home/`에 있다. 보고 연속성의 결과·실제 훅 이벤트·압축/보고 화면은 `~/devin-observer-research-lab/2026-10-31-b01/`의 `verification.json`, `activity-events.jsonl`, `old-root-rejected.json`, `compaction-complete.png`, `post-compaction-accepted.png`에 있다. 이 비공개 자료는 커밋하지 않는다.
 
 ## 로컬 설치
 
@@ -55,6 +57,6 @@
 
 ## 남은 제약
 
-[백로그](BACKLOG.md)는 경로 이전 후 보고 연속성, 개인 사용 품질·비용, 장기/병렬 실행, 접근성·추가 환경, 이력 증가, 실제 legacy DB 전환을 관리한다. 정확한 세션 탭 이동·다른 provider/schema·독립 배포/공증은 미지원이다.
+[백로그](BACKLOG.md)는 개인 사용 품질·비용, 장기/병렬 실행, 접근성·추가 환경, 이력 증가, 실제 legacy DB 전환을 관리한다. 정확한 세션 탭 이동·다른 provider/schema·독립 배포/공증은 미지원이다.
 
 토큰은 보존 메시지 합계이며 과금·평생 총량·fork 중복 제거를 보장하지 않는다. 보고 위치가 없는 태스크의 확인 위치는 추측하지 않는다. 새 optional 필드가 있는 상태를 옛 바이너리가 검증할 수 있다고 가정하지 않는다.

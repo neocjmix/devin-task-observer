@@ -56,4 +56,4 @@
 
 수집 실패는 마지막 성공 시각과 진단을 제공한다. 파일 손상은 해당 태스크의 마지막 정상 기록 또는 정상 기록 없음으로 표시한다. 선택적 metrics/resource 부재를 수집 실패로 취급하지 않는다. 외부 링크는 OS 핸들러로 열고 실패하면 복사를 제공한다. WebView 자체는 외부로 탐색하지 않는다.
 
-실제 Mac에서 키보드·AX 라벨·light/dark·live refresh·충돌·입력 보존·오류/복구·재시작을 합성 fixture로 확인했다. 실제 VoiceOver 음성과 live agent 5–10개 동시 실행은 [백로그](BACKLOG.md)에 남아 있다. [초기 명세와 fixture 시나리오](history/UI_V2_SCREEN_SPEC_ORIGINAL.md), [S8 증거](slices/UI-V2-S8.md)를 현재 지원 보장과 구분한다.
+실제 Mac에서 키보드·AX 라벨·light/dark·live refresh·충돌·입력 보존·오류/복구·재시작을 합성 fixture로 확인했다. 실제 VoiceOver 음성과 live agent 5–10개 동시 실행은 [백로그](BACKLOG.md)에 남아 있다. 검증 범위와 증거 위치는 [기준선](BASELINE.md)을 따른다.

@@ -4,7 +4,7 @@ This module performs no I/O, recovery, writes, model calls or UI actions. Acquir
 task snapshots through CooperativeState.list(), not independent raw-file reads:
 that existing boundary may recover transactions before returning coherent tasks.
 Observations, runtime and hook activity are separately acquired snapshots, not
-one globally atomic view. See docs/slices/UI-V2-S0.md for the input contract.
+one globally atomic view. See docs/DATA_AND_RECONCILIATION.md for the input contract.
 """
 from copy import deepcopy
 import hashlib

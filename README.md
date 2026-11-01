@@ -25,16 +25,16 @@ Devin 작업 세션의 변화를 공동 태스크에 모으고 **macOS 상태 �
 
 필요한 것은 승인된 Git, `venv`·`pip`를 사용할 수 있는 Python, 로그인된 Devin Desktop의 Local 작업 세션입니다. 이 프로젝트는 Python이나 Devin을 자동 설치하지 않습니다. 에이전트가 기존 설치를 먼저 확인하고, 없다면 조직의 정상 배포 경로로 확보하세요. 로그인/MFA나 관리자 승인이 필요하면 그 지점에서만 요청합니다. Gatekeeper·TLS·도구 승인 규칙을 비활성화하지 마세요.
 
-현재 구현은 **`p0/desktop-probe` 브랜치**와 [Draft PR #1](https://github.com/neocjmix/devin-task-observer/pull/1)에 있으며 main에 병합하지 않았습니다. 회사에서 GitHub 직접 접근이 허용되는 경우:
+실험 결과를 수용한 **`main` 브랜치가 정본**입니다. [PR #1](https://github.com/neocjmix/devin-task-observer/pull/1)의 M3 협조형 보고와 UI V2를 기준으로 사용합니다. 회사에서 GitHub 직접 접근이 허용되는 경우:
 
 ```sh
-git clone --branch p0/desktop-probe --single-branch https://github.com/neocjmix/devin-task-observer.git
+git clone --branch main --single-branch https://github.com/neocjmix/devin-task-observer.git
 cd devin-task-observer
 git status --short --branch
 git rev-parse HEAD
 ```
 
-비공개 저장소 접근이 허용되지 않으면 승인된 내부 미러나 소스 아카이브를 사용하세요. 회사 Mac에서 개인 GitHub 로그인을 임의로 추가하지 마세요. 아카이브는 이 브랜치의 코드와 README·scripts·observer·skills·schemas·tests를 포함해야 하며 반입한 원본 commit SHA도 기록합니다. 제품 태그 `baseline/2026-10-31-m3-ui-v2`에는 이 설치 가이드가 아직 없으므로 신규 설치 소스로 혼동하지 마세요.
+비공개 저장소 접근이 허용되지 않으면 승인된 내부 미러나 소스 아카이브를 사용하세요. 회사 Mac에서 개인 GitHub 로그인을 임의로 추가하지 마세요. 아카이브는 main의 코드와 README·scripts·observer·skills·schemas·tests를 포함해야 하며 반입한 원본 commit SHA도 기록합니다. 제품 태그 `baseline/2026-10-31-m3-ui-v2`는 이전 코드 스냅샷이므로 현재 설치 소스와 혼동하지 마세요.
 
 이미 checkout이 있다면 remote·branch·미커밋 변경을 확인하고 기존 작업을 보존하세요. 무조건 reset/checkout/pull하거나 새 clone으로 대체하지 마세요. 설치 후에도 **checkout과 Python 경로를 유지**해야 합니다.
 
@@ -196,7 +196,7 @@ observer-reporting 스킬을 사용해 observer-smoke 태스크에 이 세션을
 
 평상시 종료는 팝오버의 종료 기능, 재실행은 `open "$observer_app"`입니다. 설정을 바꾸면 재시작합니다. 로그인 자동 실행은 설치 과정에서 등록하지 않습니다. 현재 `autostart --mode menu`는 이전 NSMenu용이므로 새 팝오버 자동 실행으로 사용하지 마세요.
 
-업데이트는 앱을 종료하고 checkout의 미커밋 변경을 보존한 뒤, 검토한 동일 브랜치를 fast-forward합니다. 실행 중이던 설정과 root를 유지하세요. 코드 업데이트만으로 기존 workspace에 복사된 스킬이 바뀌지 않습니다. integration 소유 파일이 수정되지 않았는지 확인한 후 `integration remove` → `integration install`로 갱신하고 해당 Devin 창이 새 설정을 읽는지 검증하세요. 수정된 파일을 강제로 덮어쓰지 마세요. 기존 관리형 앱의 런처 전환만 필요하면 다음을 사용하며 일반 데이터 이관 명령으로 취급하지 않습니다.
+업데이트는 앱을 종료하고 checkout의 미커밋 변경을 보존한 뒤, 검토한 main을 fast-forward합니다. 기존 개발 브랜치 checkout이라면 변경사항과 main의 포함 관계를 확인한 후 main으로 전환하세요. 실행 중이던 설정과 root를 유지하세요. 코드 업데이트만으로 기존 workspace에 복사된 스킬이 바뀌지 않습니다. integration 소유 파일이 수정되지 않았는지 확인한 후 `integration remove` → `integration install`로 갱신하고 해당 Devin 창이 새 설정을 읽는지 검증하세요. 수정된 파일을 강제로 덮어쓰지 마세요. 기존 관리형 앱의 런처 전환만 필요하면 다음을 사용하며 일반 데이터 이관 명령으로 취급하지 않습니다.
 
 ```sh
 "$observer_python" scripts/setup_menu.py --upgrade-app "$observer_app" \

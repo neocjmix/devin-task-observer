@@ -6,3 +6,6 @@ dist/
 transcripts/
 fixtures/private/
 .DS_Store
+__pycache__/
+*.pyc
+.observer-state/

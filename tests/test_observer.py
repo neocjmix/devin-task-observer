@@ -1,0 +1,476 @@
+import json
+import fcntl
+import os
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import unittest
+from pathlib import Path
+
+from observer.devin_local import read_sessions, read_evidence, SourceIncomplete, observed_kinds, observed_event_keys, observed_plan_preview
+from observer.store import mark_source_unavailable, open_store, sync, acknowledge_structural_change
+from observer.registry import create_task, link_session
+from observer.progress import pending_changes
+
+
+def message(mid, text, role='user'):
+    return json.dumps({'message_id': mid, 'role': role, 'content': text})
+
+
+class CollectorTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.src = self.root / 'source' / 'sessions.db'
+        self.src.parent.mkdir()
+        self.work = self.root / 'personal'
+        self.work.mkdir()
+        self.writer = sqlite3.connect(self.src)
+        self.writer.executescript('''
+        CREATE TABLE refinery_schema_history(version INTEGER);
+        INSERT INTO refinery_schema_history VALUES(17);
+        CREATE TABLE sessions(id TEXT PRIMARY KEY, title TEXT, working_directory TEXT, main_chain_id INTEGER);
+        CREATE TABLE message_nodes(row_id INTEGER PRIMARY KEY, session_id TEXT, node_id INTEGER, parent_node_id INTEGER, chat_message TEXT);
+        ''')
+        self.writer.execute('INSERT INTO sessions VALUES(?,?,?,?)', ('one','synthetic',str(self.work),1))
+        self.writer.executemany('INSERT INTO message_nodes VALUES(?,?,?,?,?)', [(1,'one',0,None,message('a','one')), (2,'one',1,0,message('b','two','assistant'))])
+        self.writer.commit()
+        self.db = open_store(self.root / 'observer' / 'observer.db', self.src)
+
+    def tearDown(self):
+        self.db.close()
+        self.writer.close()
+        self.tmp.cleanup()
+
+    def collect(self):
+        return sync(self.db, read_sessions(self.src, [self.work]), [self.work])
+
+    def test_replay_same_size_edit_and_append(self):
+        self.assertEqual(self.collect(), 2)
+        self.assertEqual(self.collect(), 0)
+        self.writer.execute('UPDATE message_nodes SET chat_message=? WHERE node_id=1', (message('b','six','assistant'),))
+        self.writer.execute('INSERT INTO message_nodes VALUES(?,?,?,?,?)',(3,'one',2,1,message('c','new')))
+        self.writer.execute('UPDATE sessions SET main_chain_id=2')
+        self.writer.commit()
+        self.assertEqual(self.collect(), 2)
+        self.assertEqual(self.collect(), 0)
+        self.assertEqual([r[0] for r in self.db.execute('SELECT transition FROM observations ORDER BY id')], ['added','added','modified','added'])
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'current')
+
+    def test_deleted_node_and_reintroduced_node_are_recorded_and_stale(self):
+        self.collect()
+        self.writer.execute('DELETE FROM message_nodes WHERE node_id=1')
+        self.writer.execute('UPDATE sessions SET main_chain_id=0')
+        self.writer.commit()
+        self.assertEqual(self.collect(), 1)
+        self.assertEqual(self.collect(), 0)
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'stale')
+        self.writer.execute('INSERT INTO message_nodes VALUES(?,?,?,?,?)',(9,'one',1,0,message('b','two','assistant')))
+        self.writer.execute('UPDATE sessions SET main_chain_id=1')
+        self.writer.commit()
+        self.assertEqual(self.collect(), 1)
+        self.assertEqual(self.db.execute('SELECT transition FROM observations ORDER BY id DESC LIMIT 1').fetchone()[0], 'restored')
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'stale')
+
+    def test_explicit_recovery_preserves_history_and_detects_new_divergence(self):
+        self.collect()
+        self.writer.execute('DELETE FROM message_nodes WHERE node_id=1')
+        self.writer.execute('UPDATE sessions SET main_chain_id=0');self.writer.commit();self.collect()
+        fingerprint=self.db.execute('SELECT source_fingerprint FROM checkpoints WHERE session_id=?',('one',)).fetchone()[0]
+        with self.assertRaises(ValueError):acknowledge_structural_change(self.db,'one','0'*64)
+        acknowledge_structural_change(self.db,'one',fingerprint)
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0],'current')
+        self.assertEqual(self.collect(),0)
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0],'current')
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0],3)
+        self.assertEqual(self.db.execute('SELECT present FROM source_nodes WHERE node_id=1').fetchone()[0],0)
+        self.assertEqual(self.db.execute('SELECT missing_nodes FROM recovery_history').fetchone()[0],1)
+        self.writer.execute('INSERT INTO message_nodes VALUES (?,?,?,?,?)',(4,'one',2,0,message('new','fresh')))
+        self.writer.execute('UPDATE sessions SET main_chain_id=2');self.writer.commit();self.collect()
+        self.writer.execute('DELETE FROM message_nodes WHERE node_id=2')
+        self.writer.execute('UPDATE sessions SET main_chain_id=0');self.writer.commit();self.collect()
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0],'stale')
+
+    def test_recovery_rejects_ambiguous_or_disappeared_source(self):
+        self.writer.execute('INSERT INTO message_nodes VALUES(?,?,?,?,?)',(3,'one',2,1,message('a','different')))
+        self.writer.execute('UPDATE sessions SET main_chain_id=2');self.writer.commit();self.collect()
+        fingerprint=self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0]
+        with self.assertRaises(ValueError):acknowledge_structural_change(self.db,'one',fingerprint)
+        self.writer.execute('DELETE FROM sessions');self.writer.commit();self.collect()
+        with self.assertRaises(ValueError):acknowledge_structural_change(self.db,'one',fingerprint)
+
+    def test_compaction_like_new_root_retains_old_events_and_evidence(self):
+        self.collect()
+        self.writer.execute('INSERT INTO message_nodes VALUES(?,?,?,?,?)',(3,'one',2,None,message('summary','synthetic summary','system')))
+        self.writer.execute('UPDATE sessions SET main_chain_id=2'); self.writer.commit()
+        self.assertEqual(self.collect(), 1)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM events').fetchone()[0], 3)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM event_evidence').fetchone()[0], 3)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM source_nodes WHERE present=1').fetchone()[0], 3)
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'current')
+
+    def test_checkpoint_and_observations_roll_back_together(self):
+        self.collect()
+        before = self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0]
+        self.writer.execute('INSERT INTO message_nodes VALUES(?,?,?,?,?)',(3,'one',2,1,message('c','new')))
+        self.writer.execute('UPDATE sessions SET main_chain_id=2')
+        self.writer.commit()
+        self.db.execute("CREATE TRIGGER fail_checkpoint BEFORE UPDATE ON checkpoints BEGIN SELECT RAISE(ABORT, 'injected failure'); END")
+        self.db.commit()
+        with self.assertRaises(sqlite3.IntegrityError): self.collect()
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0], 2)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM source_nodes').fetchone()[0], 2)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM node_kinds').fetchone()[0], 2)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM node_equivalence').fetchone()[0], 2)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM events').fetchone()[0], 2)
+        self.assertEqual(self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0], before)
+        self.db.execute('DROP TRIGGER fail_checkpoint'); self.db.commit()
+        self.assertEqual(self.collect(),1)
+
+    def test_ambiguous_duplicate_and_malformed_source(self):
+        self.writer.execute('INSERT INTO message_nodes VALUES(?,?,?,?,?)',(3,'one',2,1,message('a','different')))
+        self.writer.execute('UPDATE sessions SET main_chain_id=2'); self.writer.commit()
+        self.collect()
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'stale')
+        before = self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0]
+        self.writer.execute("UPDATE message_nodes SET chat_message='{' WHERE node_id=2"); self.writer.commit()
+        with self.assertRaises(SourceIncomplete): self.collect()
+        self.assertEqual(self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0], before)
+
+    def test_duplicate_node_identity_does_not_advance_checkpoint(self):
+        self.collect()
+        before=self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0]
+        self.writer.execute('INSERT INTO message_nodes VALUES(?,?,?,?,?)',(3,'one',1,0,message('other','conflicting row')))
+        self.writer.commit()
+        with self.assertRaises(SourceIncomplete):self.collect()
+        self.assertEqual(self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0],before)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0],2)
+
+    def test_invalid_session_title_does_not_replace_good_metadata(self):
+        self.collect();checkpoint=self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0]
+        self.writer.execute('UPDATE sessions SET title=?',(sqlite3.Binary(b'not text'),));self.writer.commit()
+        with self.assertRaises(SourceIncomplete):self.collect()
+        self.assertEqual(self.db.execute('SELECT title FROM sessions').fetchone()[0],'synthetic')
+        self.assertEqual(self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0],checkpoint)
+
+    def test_source_file_is_never_a_store(self):
+        with self.assertRaises(ValueError): open_store(self.src, self.src)
+        with self.assertRaises(ValueError): open_store(self.src.parent / 'other.db', self.src)
+
+    def test_older_validation_schema_migrates_conservatively(self):
+        path=self.root/'observer'/'old.db';old=sqlite3.connect(path)
+        old.execute('CREATE TABLE session_validation(session_id TEXT PRIMARY KEY, ambiguous INTEGER NOT NULL)')
+        old.execute("INSERT INTO session_validation VALUES ('one',0)");old.commit();old.close()
+        db=open_store(path,self.src)
+        self.assertEqual(db.execute("SELECT ambiguous,present FROM session_validation WHERE session_id='one'").fetchone(),(0,0))
+        sync(db,read_sessions(self.src,[self.work]),[self.work])
+        self.assertEqual(db.execute("SELECT present FROM session_validation WHERE session_id='one'").fetchone()[0],1)
+        db.close()
+
+    def test_source_replacement_marks_existing_history_stale(self):
+        snap = read_sessions(self.src, [self.work])
+        sync(self.db, snap, [self.work], (1, 10))
+        self.assertEqual(sync(self.db, snap, [self.work], (1, 11)), 0)
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'stale')
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0], 2)
+        self.assertEqual(sync(self.db, snap, [self.work], (1, 11)), 0)
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'stale')
+
+    def test_actual_sqlite_file_replacement_is_detected_by_cli(self):
+        store=self.root/'observer'/'observer.db'
+        command=[sys.executable,'-m','observer','--workspace',str(self.work),'--source',str(self.src),'--store',str(store)]
+        first=subprocess.run(command,capture_output=True,text=True,timeout=5)
+        self.assertEqual(first.returncode,0);self.assertEqual(json.loads(first.stdout)['transitions'],2)
+        before=self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0]
+        replacement=self.src.parent/'replacement.db';copy=sqlite3.connect(replacement)
+        self.writer.backup(copy);copy.close();os.replace(replacement,self.src)
+        second=subprocess.run(command,capture_output=True,text=True,timeout=5)
+        self.assertEqual(second.returncode,0);result=json.loads(second.stdout)
+        self.assertEqual((result['transitions'],result['stale_sessions']),(0,1))
+        self.assertEqual(self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0],before)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0],2)
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0],'stale')
+
+    def test_unknown_source_version_does_not_advance_checkpoint(self):
+        self.collect()
+        before = self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0]
+        self.writer.execute('UPDATE refinery_schema_history SET version=999'); self.writer.commit()
+        with self.assertRaises(SourceIncomplete): self.collect()
+        self.assertEqual(self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0], before)
+
+    def test_locked_source_does_not_advance_checkpoint(self):
+        self.collect()
+        before = self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0]
+        self.writer.execute('BEGIN EXCLUSIVE')
+        try:
+            with self.assertRaises(SourceIncomplete):
+                self.collect()
+            self.assertEqual(self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0], before)
+        finally:
+            self.writer.rollback()
+
+    def test_concurrent_wal_writer_yields_consistent_snapshots(self):
+        self.writer.execute('PRAGMA journal_mode=WAL')
+        started=threading.Event();finished=threading.Event();errors=[]
+        def write():
+            db=sqlite3.connect(self.src,timeout=5)
+            try:
+                for i in range(2,62):
+                    db.execute('INSERT INTO message_nodes VALUES(?,?,?,?,?)',(i+1,'one',i,i-1,message('m'+str(i),'synthetic '+str(i),'assistant')))
+                    db.execute('UPDATE sessions SET main_chain_id=?',(i,));db.commit();started.set();time.sleep(.002)
+            except Exception as error:errors.append(error)
+            finally:db.close();finished.set()
+        thread=threading.Thread(target=write);thread.start()
+        self.assertTrue(started.wait(5));reads=0
+        try:
+            while not finished.is_set():
+                snapshot=read_sessions(self.src,[self.work]);session=snapshot[0]
+                ids={n['node_id'] for n in session['nodes']}
+                self.assertEqual(ids,set(range(session['head']+1)))
+                sync(self.db,snapshot,[self.work]);reads+=1
+        finally:thread.join(timeout=5)
+        self.assertFalse(thread.is_alive());self.assertEqual(errors,[]);self.assertGreater(reads,0)
+        self.collect()
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM source_nodes WHERE present=1').fetchone()[0],62)
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0],'current')
+        self.assertEqual(self.collect(),0)
+
+    def test_twelve_sessions_are_distinct_and_one_delta_does_not_replay_others(self):
+        for s in range(12):
+            sid='synthetic-'+str(s)
+            self.writer.execute('INSERT INTO sessions VALUES (?,?,?,?)',(sid,'Synthetic '+str(s),str(self.work),24))
+            for i in range(25):
+                self.writer.execute('INSERT INTO message_nodes(session_id,node_id,parent_node_id,chat_message) VALUES (?,?,?,?)',(sid,i,None if i==0 else i-1,message(sid+'-m'+str(i),'synthetic')))
+        self.writer.commit();self.assertEqual(self.collect(),302)
+        checkpoints=dict(self.db.execute('SELECT session_id,source_fingerprint FROM checkpoints'))
+        self.assertEqual(len(checkpoints),13);self.assertEqual(self.collect(),0)
+        self.writer.execute('INSERT INTO message_nodes(session_id,node_id,parent_node_id,chat_message) VALUES (?,?,?,?)',('synthetic-5',25,24,message('new','new synthetic')))
+        self.writer.execute('UPDATE sessions SET main_chain_id=25 WHERE id=?',('synthetic-5',));self.writer.commit()
+        self.assertEqual(self.collect(),1)
+        updated=dict(self.db.execute('SELECT session_id,source_fingerprint FROM checkpoints'))
+        self.assertEqual([sid for sid in checkpoints if checkpoints[sid]!=updated[sid]],['synthetic-5'])
+        self.assertEqual(self.collect(),0)
+
+    def test_large_synthetic_nodes_are_indexed_without_storing_bodies(self):
+        marker='synthetic-large-body-'+'x'*32768
+        for i in range(2,66):
+            self.writer.execute('INSERT INTO message_nodes(session_id,node_id,parent_node_id,chat_message) VALUES (?,?,?,?)',('one',i,i-1,message('large-'+str(i),marker,'assistant')))
+        self.writer.execute('UPDATE sessions SET main_chain_id=65');self.writer.commit()
+        snapshot=read_sessions(self.src,[self.work]);self.assertEqual(len(snapshot[0]['nodes']),66)
+        self.assertNotIn(marker,str(snapshot))
+        self.assertEqual(sync(self.db,snapshot,[self.work]),66);self.assertEqual(self.collect(),0)
+        self.assertNotIn(marker.encode(),(self.root/'observer'/'observer.db').read_bytes())
+
+    def test_session_metadata_changes_are_recorded_atomically_and_replayed(self):
+        for definition in ('model TEXT','backend_type TEXT','agent_mode TEXT','created_at INTEGER','last_activity_at INTEGER'):
+            self.writer.execute('ALTER TABLE sessions ADD COLUMN '+definition)
+        self.writer.execute("UPDATE sessions SET model='synthetic-model',backend_type='synthetic-backend',agent_mode='test',created_at=10,last_activity_at=20")
+        self.writer.commit();self.collect()
+        row=self.db.execute('SELECT model,backend,agent_mode,source_created_raw,source_activity_raw FROM session_metadata').fetchone()
+        self.assertEqual(row,('synthetic-model','synthetic-backend','test',10,20))
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM session_metadata_history').fetchone()[0],1)
+        self.writer.execute("UPDATE sessions SET model='new-model',last_activity_at=21");self.writer.commit()
+        self.assertEqual(self.collect(),0)
+        self.assertEqual(self.db.execute('SELECT model,source_activity_raw FROM session_metadata').fetchone(),('new-model',21))
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM session_metadata_history').fetchone()[0],2)
+        self.assertEqual(self.collect(),0);self.assertEqual(self.db.execute('SELECT COUNT(*) FROM session_metadata_history').fetchone()[0],2)
+        checkpoint=self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0]
+        self.db.execute("CREATE TRIGGER fail_metadata BEFORE INSERT ON session_metadata_history BEGIN SELECT RAISE(ABORT, 'fixture failure'); END");self.db.commit()
+        self.writer.execute("UPDATE sessions SET model='third-model',main_chain_id=2")
+        self.writer.execute('INSERT INTO message_nodes VALUES (?,?,?,?,?)',(3,'one',2,1,message('c','synthetic')));self.writer.commit()
+        with self.assertRaises(sqlite3.IntegrityError):self.collect()
+        self.assertEqual(self.db.execute('SELECT model FROM session_metadata').fetchone()[0],'new-model')
+        self.assertEqual(self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0],checkpoint)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM source_nodes').fetchone()[0],2)
+        self.db.execute('DROP TRIGGER fail_metadata');self.db.commit();self.collect()
+        self.writer.execute("UPDATE sessions SET last_activity_at='not-an-integer'");self.writer.commit()
+        with self.assertRaises(SourceIncomplete):self.collect()
+        self.assertEqual(self.db.execute('SELECT model,source_activity_raw FROM session_metadata').fetchone(),('third-model',21))
+
+    def test_cli_reports_metadata_only_changes_separately_from_nodes(self):
+        self.writer.execute('ALTER TABLE sessions ADD COLUMN model TEXT')
+        self.writer.execute("UPDATE sessions SET model='before'");self.writer.commit()
+        store=self.root/'observer'/'observer.db'
+        command=[sys.executable,'-m','observer','--workspace',str(self.work),'--source',str(self.src),'--store',str(store)]
+        first=json.loads(subprocess.run(command,capture_output=True,text=True,check=True,timeout=5).stdout)
+        self.assertEqual((first['transitions'],first['metadata_changes']),(2,1))
+        self.writer.execute("UPDATE sessions SET model='after'");self.writer.commit()
+        second=json.loads(subprocess.run(command,capture_output=True,text=True,check=True,timeout=5).stdout)
+        self.assertEqual((second['transitions'],second['metadata_changes']),(0,1))
+        third=json.loads(subprocess.run(command,capture_output=True,text=True,check=True,timeout=5).stdout)
+        self.assertEqual((third['transitions'],third['metadata_changes']),(0,0))
+
+    def test_transient_source_failure_recovers_but_structural_stale_does_not(self):
+        self.collect()
+        mark_source_unavailable(self.db, [self.work])
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'stale')
+        self.assertEqual(self.collect(), 0)
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'current')
+        self.writer.execute('DELETE FROM message_nodes WHERE node_id=1')
+        self.writer.execute('UPDATE sessions SET main_chain_id=0'); self.writer.commit()
+        self.collect()
+        mark_source_unavailable(self.db, [self.work])
+        self.collect()
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'stale')
+
+    def test_missing_source_cli_marks_stale_and_recovers(self):
+        self.collect()
+        store = self.root / 'observer' / 'observer.db'
+        missing = self.root / 'missing' / 'sessions.db'
+        cmd = [sys.executable, '-m', 'observer', '--workspace', str(self.work), '--source', str(missing), '--store', str(store)]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(json.loads(result.stdout)['stage'], 'refresh')
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'stale')
+        self.assertEqual(self.collect(), 0)
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'current')
+
+    def test_concurrent_cli_refresh_is_rejected_without_checkpoint_change(self):
+        self.collect()
+        store = self.root / 'observer' / 'observer.db'
+        lock = store.with_suffix('.db.lock')
+        fd = os.open(lock, os.O_CREAT | os.O_RDWR, 0o600)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            previous = self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0]
+            result = subprocess.run([sys.executable, '-m', 'observer', '--workspace', str(self.work), '--source', str(self.src), '--store', str(store)], capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(json.loads(result.stdout)['stage'], 'lock')
+            self.assertEqual(self.db.execute('SELECT source_fingerprint FROM checkpoints').fetchone()[0], previous)
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+
+    def test_duplicate_rows_and_sqlite_rowid_rewrite_do_not_replay(self):
+        self.writer.execute('INSERT INTO message_nodes VALUES(?,?,?,?,?)', (3,'one',2,1,message('a','one')))
+        self.writer.execute('UPDATE sessions SET main_chain_id=2'); self.writer.commit()
+        self.assertEqual(self.collect(), 3)
+        self.writer.execute('UPDATE message_nodes SET row_id=33 WHERE node_id=2'); self.writer.commit()
+        self.assertEqual(self.collect(), 0)
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'current')
+
+    def test_observed_additive_tool_metadata_preserves_both_nodes(self):
+        base = {'message_id':'tool-msg','role':'assistant','content':'', 'tool_calls':[{'id':'call','name':'read','arguments':'{}','index':0,'kind':'tool'}], 'metadata':{}}
+        updated = json.loads(json.dumps(base))
+        updated['metadata']['extensions'] = {'chisel/tool_call_content': {'call': []}}
+        self.writer.execute('INSERT INTO message_nodes VALUES(?,?,?,?,?)',(3,'one',2,1,json.dumps(base)))
+        self.writer.execute('INSERT INTO message_nodes VALUES(?,?,?,?,?)',(4,'one',3,2,json.dumps(updated)))
+        self.writer.execute('UPDATE sessions SET main_chain_id=3'); self.writer.commit()
+        self.assertEqual(self.collect(), 4)
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'current')
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM source_nodes').fetchone()[0], 4)
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM events WHERE kind='tool_call'").fetchone()[0], 1)
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM event_evidence WHERE kind='tool_call'").fetchone()[0], 2)
+        task=create_task(self.db,'Synthetic task');link_session(self.db,task,'one')
+        shown=[(x['node_id'],x['transition']) for x in pending_changes(self.db,task,'one')['changes']]
+        self.assertIn((2,'added'),shown);self.assertIn((3,'added'),shown)
+        changed = json.loads(json.dumps(updated)); changed['content'] = 'different'
+        self.writer.execute('UPDATE message_nodes SET chat_message=? WHERE node_id=3',(json.dumps(changed),)); self.writer.commit()
+        self.collect()
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'stale')
+        self.assertIn((3,'modified'),[(x['node_id'],x['transition']) for x in pending_changes(self.db,task,'one')['changes']])
+
+    def test_observed_timing_only_variant_preserves_nodes_without_false_ambiguity(self):
+        base={'message_id':'timed-message','role':'assistant','content':'synthetic answer','metadata':{'metrics':{'tpot_ms':1.25,'ttft_ms':15}}}
+        changed=json.loads(json.dumps(base));changed['metadata']['metrics']['tpot_ms']=1.50
+        self.writer.execute('INSERT INTO message_nodes VALUES (?,?,?,?,?)',(3,'one',2,1,json.dumps(base)))
+        self.writer.execute('INSERT INTO message_nodes VALUES (?,?,?,?,?)',(4,'one',3,2,json.dumps(changed)))
+        self.writer.execute('UPDATE sessions SET main_chain_id=3');self.writer.commit()
+        self.assertEqual(self.collect(),4);self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0],'current')
+        self.assertEqual(self.db.execute("SELECT COUNT(DISTINCT content_hash) FROM source_nodes WHERE message_id='timed-message'").fetchone()[0],2)
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM event_evidence WHERE message_id='timed-message'").fetchone()[0],2)
+        task=create_task(self.db,'Synthetic task');link_session(self.db,task,'one')
+        shown=[(x['node_id'],x['transition']) for x in pending_changes(self.db,task,'one')['changes']]
+        self.assertIn((2,'added'),shown);self.assertNotIn((3,'added'),shown)
+        changed['metadata']['metrics']['tpot_ms']=1.75
+        self.writer.execute('UPDATE message_nodes SET chat_message=? WHERE node_id=3',(json.dumps(changed),));self.writer.commit();self.collect()
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0],'current')
+        self.assertIn((3,'modified'),[(x['node_id'],x['transition']) for x in pending_changes(self.db,task,'one')['changes']])
+        changed['metadata']['metrics']['ttft_ms']=16
+        self.writer.execute('UPDATE message_nodes SET chat_message=? WHERE node_id=3',(json.dumps(changed),));self.writer.commit();self.collect()
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0],'stale')
+        self.assertIn((3,'modified'),[(x['node_id'],x['transition']) for x in pending_changes(self.db,task,'one')['changes']])
+
+    def test_reorder_and_disappeared_session_preserve_history(self):
+        self.collect()
+        self.writer.execute('UPDATE message_nodes SET parent_node_id=NULL WHERE node_id=1')
+        self.writer.commit()
+        self.assertEqual(self.collect(), 1)
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'stale')
+        self.writer.execute('DELETE FROM sessions'); self.writer.commit()
+        self.assertEqual(self.collect(), 0)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0], 3)
+        self.assertEqual(self.db.execute('SELECT status FROM sessions').fetchone()[0], 'stale')
+
+    def test_conservative_event_labels(self):
+        self.assertEqual(observed_kinds({'role':'user','metadata':{'is_user_input':True}}), ['user'])
+        self.assertEqual(observed_kinds({'role':'user','metadata':{}}), ['unknown'])
+        self.assertEqual(observed_kinds({'role':'assistant','content':'text','tool_calls':[{}]}), ['assistant','tool_call'])
+        self.assertEqual(observed_kinds({'role':'assistant','content':'','tool_calls':[{'name':'todo_write'}]}), ['tool_call','plan'])
+        self.assertEqual(observed_kinds({'role':'tool','tool_call_id':'call'}), ['tool_result'])
+        self.assertEqual(observed_kinds({'role':'tool'}), ['unknown'])
+        self.assertEqual(observed_kinds({'role':'plan'}), ['unknown'])
+        self.assertEqual(observed_event_keys({'role':'assistant','tool_calls':[{'id':'t','name':'todo_write'}]}), [('plan','t'),('tool_call','t')])
+        self.assertEqual(observed_event_keys({'role':'assistant','tool_calls':[{'id':'a','name':'read'},{'id':'b','name':'read'}]}), [('tool_call','a'),('tool_call','b')])
+        self.assertEqual(observed_event_keys({'role':'tool','tool_call_id':'t'}), [('tool_result','t')])
+        self.assertEqual(observed_event_keys({'role':'assistant','tool_calls':[{'name':'read'}]}), [('unknown','')])
+
+    def test_plan_preview_reads_only_the_observed_shape_without_inference(self):
+        message={'role':'assistant','tool_calls':[{'id':'plan-1','name':'todo_write','arguments':{'todos':[{'content':'inspect example','status':'pending'},{'content':'report example','status':'unrecognized-state'}]}}]}
+        result=observed_plan_preview(message)
+        self.assertFalse(result['unsupported']);self.assertEqual(result['plans'][0]['tool_call_id'],'plan-1')
+        self.assertEqual(result['plans'][0]['items'][1],{'content':'report example','source_status':'unrecognized-state'})
+        malformed=json.loads(json.dumps(message));malformed['tool_calls'][0]['arguments']['todos'][1]['extra']='unexpected'
+        self.assertEqual(observed_plan_preview(malformed),{'plans':[],'unsupported':True})
+        malformed=json.loads(json.dumps(message));malformed['tool_calls'][0]['arguments']='not observed'
+        self.assertEqual(observed_plan_preview(malformed),{'plans':[],'unsupported':True})
+        duplicated={'role':'assistant','tool_calls':[message['tool_calls'][0],message['tool_calls'][0]]}
+        self.assertEqual(observed_plan_preview(duplicated),{'plans':[],'unsupported':True})
+        self.assertEqual(observed_plan_preview({'role':'user','tool_calls':message['tool_calls']}),{'plans':[],'unsupported':False})
+
+    def test_evidence_is_read_only_scoped_and_hash_checked(self):
+        self.collect()
+        digest = self.db.execute('SELECT content_hash FROM source_nodes WHERE node_id=0').fetchone()[0]
+        self.assertEqual(read_evidence(self.src, self.work, 'one', 0, digest)['content'], 'one')
+        with self.assertRaises(SourceIncomplete):
+            read_evidence(self.src, self.root / 'other', 'one', 0, digest)
+        self.writer.execute('UPDATE message_nodes SET chat_message=? WHERE node_id=0', (message('a','two'),)); self.writer.commit()
+        with self.assertRaises(SourceIncomplete):
+            read_evidence(self.src, self.work, 'one', 0, digest)
+
+    def test_killed_process_during_checkpoint_rolls_back(self):
+        self.collect()
+        self.writer.execute('INSERT INTO message_nodes VALUES(?,?,?,?,?)',(3,'one',2,1,message('c','new')))
+        self.writer.execute('UPDATE sessions SET main_chain_id=2'); self.writer.commit()
+        store_path = self.root / 'observer' / 'observer.db'
+        code = '''
+import sqlite3,sys,time
+from pathlib import Path
+from observer.devin_local import read_sessions
+from observer.store import sync
+db=sqlite3.connect(sys.argv[1])
+def block():
+ print('ready', flush=True)
+ time.sleep(30)
+ return 0
+db.create_function('block_checkpoint',0,block)
+db.execute("CREATE TEMP TRIGGER pause_checkpoint BEFORE UPDATE ON checkpoints BEGIN SELECT block_checkpoint(); END")
+sync(db,read_sessions(Path(sys.argv[2]),[Path(sys.argv[3])]),[Path(sys.argv[3])])
+'''
+        child = subprocess.Popen([sys.executable, '-c', code, str(store_path), str(self.src), str(self.work)], stdout=subprocess.PIPE, text=True)
+        try:
+            self.assertEqual(child.stdout.readline().strip(), 'ready')
+            child.kill(); child.wait(timeout=5)
+        finally:
+            if child.poll() is None:
+                child.kill(); child.wait(timeout=5)
+            child.stdout.close()
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0], 2)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM source_nodes').fetchone()[0], 2)
+        self.assertEqual(self.collect(), 1)
+
+
+if __name__ == '__main__': unittest.main()

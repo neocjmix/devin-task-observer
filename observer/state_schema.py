@@ -1,0 +1,253 @@
+"""Version 1 cooperative contracts; only the schema keywords used here are evaluated.
+
+No model, remote references or optional validator dependency is needed. Published
+schemas are generated from these same definitions by `observerctl state schema`.
+"""
+import json
+import re
+from pathlib import PurePosixPath
+from urllib.parse import urlsplit
+
+ID = {'type': 'string', 'pattern': r'^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$'}
+TEXT = {'type': 'string', 'maxLength': 16000}
+SID = {'type': 'string', 'minLength': 1, 'maxLength': 200, 'pattern': r'^[^\s/\\]+$'}
+REV = {'type': 'integer', 'minimum': 1}
+
+
+def obj(properties, required=None):
+    return {'type': 'object', 'properties': properties,
+            'required': list(properties) if required is None else required,
+            'additionalProperties': False}
+
+
+def array(items, limit=1000):
+    return {'type': 'array', 'items': items, 'maxItems': limit}
+
+
+ACTOR = obj({'kind': {'enum': ['human', 'session', 'legacy']},
+             'session_id': {'anyOf': [SID, {'type': 'null'}]}})
+EVIDENCE = obj({'session_id': SID, 'reference': {'type': 'string', 'minLength': 1, 'maxLength': 2000},
+                'kind': {'enum': ['session_event', 'local_artifact', 'report']}})
+ITEM = obj({'item_id': ID, 'title': {'type': 'string', 'minLength': 1, 'maxLength': 300},
+            'value': {}, 'status': {'type': 'string', 'minLength': 1, 'maxLength': 100},
+            'evidence': array(EVIDENCE, 100), 'pinned': {'type': 'boolean'},
+            'archived': {'type': 'boolean'}, 'created_by': ACTOR, 'updated_by': ACTOR,
+            'item_revision': REV, 'commit_sequence': REV, 'updated_at': TEXT,
+            'report_id': ID, 'verification': {'enum': ['reported', 'legacy_import']}})
+# Optional presentation intent supplied explicitly by a reporting session or human.
+# Keep these out of obj()'s default required list: existing v1 records are valid
+# without them, and reads must not rewrite old records to manufacture metadata.
+ITEM_PRESENTATION = {
+    'role': {'enum': ['general', 'situation', 'intervention', 'next_action',
+                      'resume', 'blocker', 'decision', 'verification']},
+    'attention_required': {'type': 'boolean'},
+}
+ITEM['properties'].update(ITEM_PRESENTATION)
+TASK = obj({'schema_version': {'const': 1}, 'task_id': ID, 'title': {'type': 'string', 'minLength': 1, 'maxLength': 300},
+            'revision': REV, 'updated_at': TEXT, 'updated_by': ACTOR,
+            'contributions': array(obj({'session_id': SID, 'reporting': {'type': 'boolean'},
+                'linked_at': TEXT, 'last_report_at': {'anyOf': [TEXT, {'type': 'null'}]}}), 100),
+            'items': array(ITEM), 'notes': array(obj({'note_id': ID, 'text': TEXT, 'created_at': TEXT})),
+            'view': obj({'markdown': TEXT})})
+# Imported source facts remain explicit snapshots; arbitrary original row data lives
+# in checksummed, immutable archive files rather than being guessed into new fields.
+LEGACY = obj({'migration_id': ID, 'source_task_id': ID, 'source_revision': REV,
+              'description': TEXT, 'lifecycle': TEXT, 'created_at': {'type': 'integer'},
+              'archive_ref': TEXT, 'archive_sha256': {'type': 'string', 'pattern': r'^[a-f0-9]{64}$'},
+              'view': {'anyOf': [{'type': 'object'}, {'type': 'null'}]},
+              'review_cursors': array({'type': 'object'}),
+              'resources': array({'type': 'object'}),
+              'archived_contributions': array({'type': 'object'})})
+TASK['properties']['legacy'] = LEGACY
+
+RESOURCE_INPUT = obj({
+    'resource_id': ID,
+    'kind': {'enum': ['issue', 'document', 'environment', 'repository', 'branch',
+                      'pr', 'communication', 'deliverable', 'other']},
+    'label': {'type': 'string', 'minLength': 1, 'maxLength': 300},
+    'target': {'type': 'string', 'minLength': 1, 'maxLength': 4000},
+    'open_mode': {'enum': ['url', 'file', 'copy']},
+    'evidence': array(EVIDENCE, 100),
+}, ['resource_id', 'kind', 'label', 'target', 'open_mode'])
+HUMAN_ACTOR = obj({'kind': {'const': 'human'}, 'session_id': {'type': 'null'}})
+RESOURCE = obj({**RESOURCE_INPUT['properties'], 'archived': {'type': 'boolean'},
+                'created_by': HUMAN_ACTOR, 'updated_by': HUMAN_ACTOR,
+                'created_at': TEXT, 'updated_at': TEXT,
+                'external_status': {'const': 'unknown'}})
+TASK['properties']['resources'] = array(RESOURCE)
+MANAGEMENT = obj({'lifecycle': {'enum': ['active', 'completed']},
+                  'observation_enabled': {'type': 'boolean'},
+                  'previous_observation_enabled': {'type': 'boolean'}})
+TASK['properties']['management'] = MANAGEMENT
+TASK['properties']['last_report_revision'] = REV
+DEFAULT_MANAGEMENT = {'lifecycle': 'active', 'observation_enabled': True,
+                      'previous_observation_enabled': True}
+
+
+def task_management(value):
+    """Read the effective management settings without rewriting legacy v1 files."""
+    return dict(value.get('management', DEFAULT_MANAGEMENT))
+
+CHANGE_FIELDS = {'item_id': ID, 'title': ITEM['properties']['title'], 'value': {},
+                 'status': ITEM['properties']['status'], 'evidence': array(EVIDENCE, 100)}
+CHANGE = {'anyOf': [
+    obj({'op': {'const': 'define'}, **CHANGE_FIELDS}),
+    {**obj({'op': {'const': 'update'}, **CHANGE_FIELDS}, ['op', 'item_id']), 'minProperties': 3},
+    obj({'op': {'const': 'archive'}, 'item_id': ID}),
+]}
+for operation in CHANGE['anyOf'][:2]:
+    operation['properties'].update(ITEM_PRESENTATION)
+REVISIONS = {'type': 'object', 'minProperties': 1, 'maxProperties': 20,
+             'propertyNames': ID, 'additionalProperties': REV}
+REPORT = obj({'schema_version': {'const': 1}, 'report_id': ID,
+              'session_id': SID, 'expected_revisions': REVISIONS,
+              'changes': {'type': 'object', 'minProperties': 1, 'maxProperties': 20,
+                          'propertyNames': ID, 'additionalProperties': array(CHANGE, 100)}})
+EDIT_ITEM = obj({k: ITEM['properties'][k] for k in ('item_id', 'title', 'value', 'status', 'evidence', 'pinned', 'archived')})
+EDIT_ITEM['properties'].update(ITEM_PRESENTATION)
+EDIT = obj({'schema_version': {'const': 1}, 'task_id': ID, 'expected_revision': REV,
+            'title': TASK['properties']['title'], 'items': array(EDIT_ITEM),
+            'view': TASK['properties']['view']})
+CONTEXT = obj({'schema_version': {'const': 1}, 'session_id': SID,
+               'identity_source': {'enum': ['explicit_registration', 'devin_hook']}})
+SCHEMAS = {'task': TASK, 'report': REPORT, 'edit': EDIT, 'context': CONTEXT,
+           'resource': RESOURCE_INPUT}
+MAX_BYTES = 2 * 1024 * 1024
+
+
+def _validate(value, rule, path='$'):
+    def fail(message):
+        raise ValueError(path + ': ' + message)
+    if 'anyOf' in rule:
+        for child in rule['anyOf']:
+            try:
+                _validate(value, child, path)
+                return
+            except ValueError:
+                pass
+        fail('does not match a supported schema')
+    kinds = {'object': dict, 'array': list, 'string': str, 'integer': int,
+             'boolean': bool, 'null': type(None)}
+    if 'type' in rule and type(value) is not kinds[rule['type']]:
+        fail('expected ' + rule['type'])
+    if 'const' in rule and (type(value) is not type(rule['const']) or value != rule['const']):
+        fail('unsupported value/version')
+    if 'enum' in rule and value not in rule['enum']:
+        fail('unsupported value')
+    if type(value) is dict:
+        if len(value) < rule.get('minProperties', 0) or len(value) > rule.get('maxProperties', 10000):
+            fail('object size outside limit')
+        for key in rule.get('required', []):
+            if key not in value:
+                fail('missing ' + key)
+        props = rule.get('properties', {})
+        for key, child in value.items():
+            if 'propertyNames' in rule:
+                _validate(key, rule['propertyNames'], path + '.<key>')
+            extra = rule.get('additionalProperties', {})
+            if key not in props and extra is False:
+                fail('unknown field ' + key)
+            _validate(child, props.get(key, extra) or {}, path + '.' + key)
+    elif type(value) is list:
+        if len(value) > rule.get('maxItems', 10000):
+            fail('too many entries')
+        for i, child in enumerate(value):
+            _validate(child, rule.get('items', {}), f'{path}[{i}]')
+    elif type(value) is str:
+        if not rule.get('minLength', 0) <= len(value) <= rule.get('maxLength', MAX_BYTES):
+            fail('text length outside limit')
+        if 'pattern' in rule and re.fullmatch(rule['pattern'], value) is None:
+            fail('invalid identifier')
+    elif type(value) is int and value < rule.get('minimum', value):
+        fail('number below minimum')
+
+
+def validate(value, kind):
+    try:
+        encoded = json.dumps(value, ensure_ascii=False, allow_nan=False).encode('utf-8')
+    except (TypeError, ValueError, RecursionError, UnicodeError) as error:
+        raise ValueError('not finite UTF-8 JSON') from error
+    if len(encoded) > MAX_BYTES:
+        raise ValueError('document exceeds 2 MiB')
+    try:
+        _validate(value, SCHEMAS[kind])
+    except RecursionError as error:
+        raise ValueError('JSON nesting too deep') from error
+    if kind == 'resource':
+        validate_resource_target(value)
+    if kind == 'edit':
+        ids = [i['item_id'] for i in value['items']]
+        if len(ids) != len(set(ids)):
+            raise ValueError('$.items: duplicate ID')
+    if kind == 'report':
+        if not set(value['changes']) <= set(value['expected_revisions']):
+            raise ValueError('$.changes: every changed task needs an expected revision')
+        for task_id, changes in value['changes'].items():
+            ids = [c['item_id'] for c in changes]
+            if not ids or len(ids) != len(set(ids)):
+                raise ValueError('$.changes.' + task_id + ': expected nonempty changes with unique item IDs')
+    if kind == 'task':
+        if value.get('last_report_revision', 1) > value['revision']:
+            raise ValueError('last_report_revision exceeds task revision')
+        management = task_management(value)
+        if management['lifecycle'] == 'completed' and management['observation_enabled']:
+            raise ValueError('completed task cannot have observation enabled')
+        for key, id_key in (('items', 'item_id'), ('contributions', 'session_id'), ('notes', 'note_id')):
+            ids = [x[id_key] for x in value[key]]
+            if len(ids) != len(set(ids)):
+                raise ValueError('$.' + key + ': duplicate ID')
+        sessions = {x['session_id'] for x in value['contributions']}
+        resources = value.get('resources', [])
+        if len({r['resource_id'] for r in resources}) != len(resources):
+            raise ValueError('$.resources: duplicate ID')
+        for resource in resources:
+            validate_resource_target(resource)
+            for evidence in resource['evidence']:
+                if evidence['session_id'] not in sessions:
+                    raise ValueError('resource evidence refers to an unlinked session')
+        for item in value['items']:
+            if item['commit_sequence'] > value['revision']:
+                raise ValueError('item commit_sequence exceeds task revision')
+            for evidence in item['evidence']:
+                if evidence['session_id'] not in sessions:
+                    raise ValueError('evidence refers to an unlinked session')
+        for actor in [value['updated_by']] + [i[k] for i in value['items'] for k in ('created_by', 'updated_by')]:
+            if actor['kind'] in ('human', 'legacy') and actor['session_id'] is not None:
+                raise ValueError('human/legacy actor cannot claim a session ID')
+            if actor['kind'] == 'session' and actor['session_id'] not in sessions:
+                raise ValueError('actor refers to an unlinked session')
+    return value
+
+
+def validate_resource_target(resource):
+    """Validate an explicit opener intent, without filesystem/network probes.
+
+    Copy mode is literal text and never an instruction to open a protocol. URLs
+    have a deliberately small scheme allowlist; session-control schemes are not
+    resource links. Existence, access and external status remain unknown.
+    """
+    target, mode = resource['target'], resource['open_mode']
+    if not resource['label'].strip():
+        raise ValueError('resource label must not be blank')
+    if not target.strip() or any(ord(c) < 32 or ord(c) == 127 for c in target):
+        raise ValueError('resource target must not be blank or contain control characters')
+    if mode == 'url':
+        if any(c.isspace() for c in target) or '\\' in target:
+            raise ValueError('resource URL must not contain whitespace or backslashes')
+        parsed = urlsplit(target)
+        if parsed.scheme not in ('http', 'https') or not parsed.hostname:
+            raise ValueError('resource URL must be an absolute HTTP or HTTPS URL')
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError('resource URL must not contain credentials')
+        # Accessing port also validates malformed/non-numeric/out-of-range ports.
+        parsed.port
+    elif mode == 'file':
+        if not PurePosixPath(target).is_absolute() or target.startswith('//'):
+            raise ValueError('resource file target must be an absolute local path')
+    elif mode != 'copy':
+        raise ValueError('unsupported resource opening mode')
+
+
+def published(kind):
+    return {'$schema': 'https://json-schema.org/draft/2020-12/schema',
+            'title': 'Observer cooperative ' + kind + ' v1', **SCHEMAS[kind]}

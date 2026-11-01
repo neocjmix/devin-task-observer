@@ -1,36 +1,54 @@
-# Validation, Security, and Handoff
+# 검증과 작업 인수인계
 
-## Phase gates and estimates
+| 항목 | 내용 |
+|---|---|
+| 문서 유형 | 운영·개발 안내 |
+| 상태 | 현재 기준선 이후 사용 |
+| 기준 | [main 정본 기준선](BASELINE.md) |
+| 적용 범위 | 재검증·다음 세션 시작·안전 경계 |
 
-P0: Personal Devin Desktop local-data and hook probe (4–12h). Go only if active sessions can be discovered and changed reliably via read-only access.
-P1: Adapter, incremental diff, checkpoints, synthetic fixtures (12–24h). Pass rewrite/restart/duplicate/crash tests.
-P2: Task registry and many-to-many contribution mapping (10–20h). Two sessions per task and multiple tasks per session.
-P3: Persistent views, dashboard, manual corrections (16–32h). Zero-token reads and stable view structure.
-P4: Optional semantic reconciliation (16–40h). Evidence-linked patches with strict budget.
-P5: Dogfood, hardening and approved internal import (16–40h). Validate security and usefulness.
+## 시작할 때
 
-These are planning estimates, not delivery promises.
+1. [기준선](BASELINE.md) → [백로그](BACKLOG.md) → 해당 이슈를 읽는다.
+2. `git status --short --branch`, `git log`, 원격 브랜치/PR head를 확인한다. 미커밋 변경은 작성 주체와 범위를 확인해 보존한다.
+3. 현재 정본은 main이며 후속 작업은 최신 main에서 분기한다. 코드 스냅샷 `3ed1955`와 태그 `baseline/2026-10-31-m3-ui-v2`는 이동하지 않는다. 이후 문서 커밋과 제품 변경을 구분한다.
+4. 실제 실행 설정은 `~/.devin-task-observer/config.json`이며 태스크 원본은 `state/`다. 레거시 실험 DB나 실험실 폴더를 기본값으로 되돌리지 않는다.
+5. 승인한 작업 범위를 넘어 기능을 확장하지 않는다.
 
-## Dashboard
+## 재현 가능한 점검
 
-Home: attention queue, active tasks, stale/unknown states, recent changes, unclassified sessions. Task detail: stable custom sections, ticket/PR links, plan, findings, decisions, blockers, freshness, evidence drilldown, contributions, manual edit and refresh. Session detail: read-only timeline, last seen and source health. Open-in-Devin links only after verifying deep-link support.
+```sh
+python3 scripts/check_docs.py
+DEVIN_OBSERVER_GIT=/Library/Developer/CommandLineTools/usr/bin/git python3 -m unittest discover -s tests -q
+node tests/ui_v2_frontend.cjs
+./observerctl state list
+"$HOME/Library/Application Support/Devin Task Observer/menu-runtime/bin/python" -m observer.desktop --snapshot
+```
 
-## Budget
+Git 경로는 이 Mac의 이미 설치된 대안이다. 다른 환경에서는 정상 Git을 지정한다. 이 명령들은 에이전트의 재검증 경로이며 사용자에게 수동 실행을 요구하는 인수인계가 아니다. 실제 모델 테스트는 `OBSERVER_LIVE_CODEX`, `OBSERVER_LIVE_DEVIN_ACP`가 없으면 skip된다. 문서 정리나 일반 조회를 위해 활성화하지 않는다.
 
-Deterministic collection, diff, projection and dashboard reads must use zero LLM tokens. Semantic analysis is off by default and triggered by manual refresh initially. Later, use debounced stop/idle triggers. Cache by delta hash, view revision and model/prompt version. Enforce per-call/daily hard limits and a usage ledger. Budget exhaustion never disables basic tracking.
+기준선의 414/412/2 결과를 새 코드의 결과로 복사하지 않는다. 제품 코드를 변경하면 변경 범위에 맞춰 다시 검증하고 기준선의 검증 상태와 이슈 결과를 갱신한다. 문서만 변경했으면 문서 링크와 명령·코드 설명의 정합성을 확인한다.
 
-## Security
+## 증거 분류
 
-Personal development uses public docs, personal Devin sessions and synthetic fixtures only. Do not copy company transcripts, source, tickets, credentials, configs or incident details to personal environments. Localhost UI, no telemetry/egress by default, least-privilege file access, no writes to Devin storage, no ACP session takeover, minimal retention, redacted diagnostics and dependency/license review. Internal deployment uses company-approved transfer and models. No reverse sync from company repo to personal GitHub.
+| 분류 | 인정할 수 있는 근거 | 대신 주장하면 안 되는 것 |
+|---|---|---|
+| 단위·합성 통합 | 재현 가능한 입력, 결과, 종료 코드, 보존 비교 | 실제 Devin/사용자 작업 성공 |
+| Mock | 프로토콜·실패·권한 분기의 처리 | 실제 외부 호환성·승인 |
+| 실제 개인 합성 Devin | 실제 세션 ID/훅/도구 결과와 원본 비간섭 | 회사 환경·모든 provider·항상 정확한 보고 |
+| 실제 Mac UI | 실제 클릭·표시·오류/복구·스크린샷 | 실시간 다중 에이전트·VoiceOver 음성까지 자동 확대 |
+| 읽기 전용 런타임 | 앱·서비스 상태, 수집 성공, 태스크 불변 | 새 보고 턴의 의미 정확성 |
 
-## Dogfood metrics
+수집 오류와 파일 손상은 별개로 검증한다. 목록이 복구됐다는 이유만으로 수집기 건강도를 정상으로 선언하지 않는다. 도구 실행 시도·모델 응답·보고 ON만으로 기능 완료를 주장하지 않는다.
 
-Count status-only session revisits/day; median time to find ticket, PR and next action; share of status questions answered without opening session; stale/incorrect claim rate; semantic tokens/day; bytes reprocessed; adapter failures. Test the hypothesis of 50% fewer status-only revisits rather than assuming it.
+## 설치·재시작 경계
 
-## P0 unresolved questions
+기본 앱은 `observer.desktop`, 진단은 `--snapshot`, NSMenu는 `--legacy-menu`다. `.app`은 checkout/venv를 참조하는 alias다. `scripts/setup_menu.py --upgrade-app`의 명시적 이전 경로 옵션은 관리형 런처만 재연결하며 데이터를 이관하지 않는다. 데이터 위치 변경의 조건과 백업은 [운영 안내](RUNTIME.md#상태-경로-변경)를 따른다.
 
-Actual Devin Desktop storage locations and schemas across models; stable IDs and ordering; write frequency/atomicity; compaction and transcript rewrite; hook payloads in Desktop versus CLI; structured TODO availability; deep-link behavior; company data policy.
+하나의 관측 DB에는 서비스 락으로 수집 소유자를 하나만 둔다. 필요 시 앱을 정상 종료한 뒤 재실행하고 태스크 상태·수집 성공을 확인한다. 다른 실험 프로세스를 임의 종료하지 않는다. 로그인 자동 실행·접근성 권한·계정 인증은 필요할 때 해당 범위만 승인받는다.
 
-## Handoff
+## 보안과 완료 보고
 
-Use Codex for generic core/UI/fixtures and personal Devin only for integration probes. Keep external and internal repositories independent. If only documentation may be imported, implement internally from these plans. First deliverable: a read-only probe that reports discovered sessions, formats, change patterns and stable identifiers without retaining message bodies or sending data over the network.
+원본 Devin에 쓰거나 기존 작업 세션에 프롬프트를 주입·재개·소유권 획득하지 않는다. 개인 승인 workspace와 합성 데이터만 사용한다. 대화 원문·DB·개인 설정·인증정보·스크린샷은 Git에 넣지 않는다. 관측·조회는 텔레메트리와 별도 모델 호출 없이 수행한다.
+
+완료 보고는 변경한 범위, 실제 검증, 미검증/실패, 남은 이슈, 사용자 개입, 커밋/PR을 구분한다. 이슈는 수용 기준을 실제로 충족했을 때 증거와 커밋을 붙여 닫는다. PR은 별도 요청 없이 병합하지 않는다.

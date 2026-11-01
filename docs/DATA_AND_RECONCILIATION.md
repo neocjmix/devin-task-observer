@@ -1,27 +1,62 @@
-# Data and Reconciliation Specification
+# 데이터와 보고 처리 계약
 
-## Entities
+| 항목 | 내용 |
+|---|---|
+| 문서 유형 | 현재 설계 계약 |
+| 상태 | 구현 기준과 일치 |
+| 기준 | [2026-10-31 고정 기준선](BASELINE.md) |
+| 적용 범위 | M3 파일 상태·읽기 전용 관측·UI 경계 |
 
-Task(id,title,description,lifecycle,createdAt,updatedAt); Session(id,provider,externalId,model,runtimeState,lastSeen,sourceVersion); Contribution(id,taskId,sessionId,role,scope,linkedBy,confidence,from,to) permits many-to-many relationships.
+## 데이터 흐름
 
-Resource(id,taskId,kind,uri,repo,branch,externalStatus,verifiedAt) links tickets, PRs, repositories, worktrees, commits, tests and documents. Observation(id,sessionId,sourceKey,sequence,kind,contentHash,sourceRef,observedAt) is an immutable normalized event. Checkpoint(sessionId,sourceFingerprint,adapterVersion,lastStableKey,prefixHashes,lastCommittedAt) is persisted transactionally.
+```text
+Devin Local 원본 → 읽기 전용 수집 → Observer SQLite 관측·체크포인트
+작업 세션 → 설치 스킬·CLI → JSON Schema·OCC 검증 → 파일 태스크·이력
+두 저장소의 읽기 투영 → Python/PyObjC → 로컬 HTML/JS 팝오버
+```
 
-TaskView(id,taskId,revision,sections) contains stable section IDs and ordering. ViewItem(id,sectionId,content,status,evidenceRefs,origin,confidence,pinned,createdAt,updatedAt,supersededBy) is durable. ReconcileProposal(id,taskId,expectedRevision,patch,model,tokenUsage,validationStatus) is validated before applying.
+별도 LLM 의미 분석은 기본 경로가 아니다. 현재 시스템에서 의미 판단·추적 항목 정의·충돌 재판단은 해당 작업 세션이 맡는다. 결정론적 Core는 형식·출처 참조·태스크 범위·revision·고정·중복을 검사하며 내용의 진실성을 인증하지 않는다.
 
-## Incremental sync invariants
+## 저장 경계
 
-Discover actual Devin Desktop sources rather than assuming CLI storage layout. Read-only snapshots must tolerate concurrent writers. Normalize user, assistant, tool_call, tool_result, plan and unknown events. Prefer verified stable message IDs; fall back to anchored content hashes and common prefix/suffix checks. Byte offsets alone are unsafe for rewritten JSON.
+| 위치 | 저장 내용 | 갱신 주체 |
+|---|---|---|
+| `config.json` | 선택한 개인 workspace, 원본/관측 DB 등 설정 | 명시적 설정 |
+| `observer.sqlite3` | 세션 메타데이터, 해시·관측·checkpoint, 추출 후보·계획·수집 상태 | 결정론적 수집기 |
+| `state/tasks/<id>/state.json` | 정의·기여 세션·추적값·출처·메모·핀·View·등록 리소스·관리 설정 | 공통 Core의 검증된 커밋 |
+| 태스크 `history/` | 커밋별 이전/현재 상태 | 공통 Core |
+| `state/reports/`, `.transactions/` | 중복 방지 영수증, prepared journal | 공통 Core |
+| `state/sessions/`, `integrations/` | 실제 훅 ID·활동, 설치 소유권 | 허용된 작업 공간의 최소 훅·설치 도구 |
+| `state/ui/read-cursors.json` | 태스크별 명시적 확인 위치 | 사용자 확인; 태스크 revision과 분리 |
 
-Test append, same-length edit, rewrite, truncation, reordering, compaction, duplicates, missing records, malformed JSON, SQLite locking and crash between observation persistence and checkpoint. Persist derived state and checkpoint atomically. Replay is idempotent; ambiguous divergence is surfaced, not silently skipped.
+기본 상위 폴더는 `~/.devin-task-observer/`다. [공통 경로](../observer/paths.py)와 명시적 옵션을 사용한다. 원본 대화 본문을 일괄 보관하지 않지만 추출한 텍스트와 세션 보고는 민감한 로컬 자료로 취급한다.
 
-Hooks or file watchers are optional wake signals. Polling and manual refresh always work. Debounce bursts. If a source disappears, preserve last-known state with stale timestamp.
+## 공유 태스크와 최신 상태
 
-## Stable views
+태스크와 세션은 다대다다. 각 세션이 기존 항목을 읽고 추적 정의를 만들거나 재사용한다. 항목의 ID·revision·updated_by·시각·근거를 보존한다. 제목이나 시각만으로 다른 항목을 자동 병합하지 않는다.
 
-Templates may cover implementation, investigation, design and incident response, but sections remain task-specific and freely composable. Keep section/item IDs, order, user edits and pinned content. No whole-view rewrite, destructive deletion or silent merge. Use superseded/retracted states. Uncategorized findings go to Inbox. Structural changes require approval. Conflicting claims coexist and link to provenance.
+마지막으로 성공한 유효 커밋을 현재값으로 사용한다. 이전 상태를 읽은 writer는 revision 충돌로 거절한다. 사람이 직접 고친 추적값도 **고정하지 않았다면** 후속 보고로 바뀔 수 있으며 이전 값은 이력에 남는다. 명시적 핀·메모·확인 위치를 에이전트가 덮어쓰지 않는다. 정확한 절차는 [트랜잭션 계약](STATE_TRANSACTION_CONTRACT.md)을 따른다.
 
-## Semantic patch contract
+## 관측·후보·보고의 구분
 
-Inputs: only relevant new normalized events, affected existing ViewItems, the view contract and evidence references. Output: bounded add/update-status/attach-evidence/supersede/propose-section operations. Check expected revision, IDs, evidence, permissions and non-destructive constraints. Rejected patches are retained for diagnosis.
+- 관측 이벤트·checkpoint는 같은 SQLite 트랜잭션으로 기록한다. 확인한 schema 17 밖의 원본 구조는 추측해 해석하지 않는다.
+- 동일한 중복 노드와 모호한 ID/원본 변경을 구분한다. 원본 해석 불가·일부 불확실·마지막 정상 기록을 숨기지 않는다. 완전한 대화 시간순 복원은 보장하지 않는다.
+- 발견한 티켓·PR·저장소·브랜치는 후보이며 등록된 태스크 리소스와 구분한다. 공유 세션이나 workspace만으로 배타적 태스크 소속을 확정하지 않는다. 외부 API 미검증 상태는 `unknown`이다.
+- `todo_write`는 확인한 구조만 읽고 세션별 계획·근거를 유지한다. 에이전트 완료 보고는 실제 완료 검증과 다르다.
+- 활동 시각·보고 시각·수집 성공 시각은 서로 다르다. 보고 ON이나 정상 수집만으로 의미 상태가 최신이라고 판정하지 않는다.
 
-Do not equate agent claims with externally verified completion. PR/ticket status is authoritative only when fetched from approved external API. Never fabricate progress percentages.
+## 검증과 장애 처리
+
+스키마는 [cooperative-v1](../schemas/cooperative-v1/)과 [UI 확인 위치](../schemas/ui-v2/read-cursors.schema.json)에 있다. 안전한 직접 편집은 `edit-export → validate → edit-apply`를 사용한다. 규약 밖 수정은 원문을 보존하고 현재/last_good/오류를 구분한다. 판별 가능한 손상은 해당 범위로 제한하고, 복구 journal의 영향 범위를 모르면 접근을 중단한다.
+
+판단·모델·네트워크 작업을 커밋 락 안에서 실행하지 않는다. 이전된 root는 원래 락 안에서 marker를 확인하고 새 위치 안내로 거절한다. 같은 사용자 권한의 임의 writer까지 통제하는 보안 경계는 아니다.
+
+## UI 투영
+
+`observer.ui_projection`은 전달받은 스냅샷만 정규화하며 I/O·복구·쓰기·모델 호출을 하지 않는다. 태스크는 개별 state.json을 따로 읽지 않고 `CooperativeState.list()`를 통해 일관된 커밋 경계에서 얻는다. 이 획득 단계는 미완료 트랜잭션을 복구할 수 있다.
+
+관측 DB·런타임·훅 활동은 별도로 획득한 스냅샷이므로 전체 화면이 한 시점의 전역 원자적 스냅샷이라는 보장은 없다. 태스크–세션 연결, 항목 출처·시각, 핀·메모·리소스 후보, 현재값·last_good·오류를 구분해 유지한다. 없는 역할·작성 시각·확인 위치를 추정하지 않는다.
+
+## 호환 기능의 데이터 경계
+
+SQLite 태스크·웹 UI·선택적 모델 분석은 현재 파일 태스크와 분리된 데이터 경로다. 모델 패치의 인간 소유 전환·의미 커서를 협조형 보고 revision과 혼용하지 않는다. 명시적 이관은 원본 백업과 스냅샷을 보존하며 자동 병합·양방향 동기화는 하지 않는다. 실행 옵션과 알려진 제약은 [운영 안내](RUNTIME.md)에 정의한다.

@@ -1,0 +1,1239 @@
+{
+  "task_snapshots": [
+    {
+      "task_id": "task-auth",
+      "health": "ok",
+      "errors": [],
+      "state": {
+        "schema_version": 1,
+        "task_id": "task-auth",
+        "title": "인증 갱신",
+        "revision": 12,
+        "updated_at": "2026-10-31T11:30:00+00:00",
+        "updated_by": {
+          "kind": "human",
+          "session_id": null
+        },
+        "contributions": [
+          {
+            "session_id": "session-a",
+            "reporting": true,
+            "linked_at": "2026-10-31T07:00:00+00:00",
+            "last_report_at": "2026-10-31T09:00:00+00:00"
+          },
+          {
+            "session_id": "session-b",
+            "reporting": true,
+            "linked_at": "2026-10-31T07:00:00+00:00",
+            "last_report_at": "2026-10-31T09:30:00+00:00"
+          }
+        ],
+        "items": [
+          {
+            "item_id": "situation",
+            "title": "현재 상황",
+            "value": "통합 테스트 진행 중. 인터페이스 변경 이후 검증 결과를 확인하고 있습니다.",
+            "status": "in_progress",
+            "evidence": [
+              {
+                "session_id": "session-b",
+                "kind": "session_event",
+                "reference": "synthetic:event:situation"
+              }
+            ],
+            "pinned": false,
+            "archived": false,
+            "created_by": {
+              "kind": "session",
+              "session_id": "session-a"
+            },
+            "updated_by": {
+              "kind": "session",
+              "session_id": "session-b"
+            },
+            "item_revision": 2,
+            "commit_sequence": 8,
+            "updated_at": "2026-10-31T09:30:00+00:00",
+            "report_id": "report-situation",
+            "verification": "reported"
+          },
+          {
+            "item_id": "pinned-policy",
+            "title": "세션 만료 정책",
+            "value": {
+              "policy": "기존 정책 유지",
+              "reason": "사용자가 고정한 결정"
+            },
+            "status": "decision",
+            "evidence": [
+              {
+                "session_id": "session-a",
+                "kind": "session_event",
+                "reference": "synthetic:event:pinned-policy"
+              }
+            ],
+            "pinned": true,
+            "archived": false,
+            "created_by": {
+              "kind": "session",
+              "session_id": "session-a"
+            },
+            "updated_by": {
+              "kind": "human",
+              "session_id": null
+            },
+            "item_revision": 2,
+            "commit_sequence": 10,
+            "updated_at": "2026-10-31T11:15:00+00:00",
+            "report_id": "report-pinned-policy",
+            "verification": "reported"
+          },
+          {
+            "item_id": "test-result",
+            "title": "검증 결과",
+            "value": "테스트 실행 완료. 오류 1건이 남아 수정과 재실행이 필요합니다.",
+            "status": "completed",
+            "evidence": [
+              {
+                "session_id": "session-b",
+                "kind": "session_event",
+                "reference": "synthetic:event:test-result"
+              }
+            ],
+            "pinned": false,
+            "archived": false,
+            "created_by": {
+              "kind": "session",
+              "session_id": "session-b"
+            },
+            "updated_by": {
+              "kind": "session",
+              "session_id": "session-b"
+            },
+            "item_revision": 2,
+            "commit_sequence": 7,
+            "updated_at": "2026-10-31T09:25:00+00:00",
+            "report_id": "report-test-result",
+            "verification": "reported"
+          },
+          {
+            "item_id": "archived-plan",
+            "title": "이전 계획",
+            "value": "이전 접근은 추적을 중단했지만 기록은 보존합니다.",
+            "status": "superseded",
+            "evidence": [
+              {
+                "session_id": "session-a",
+                "kind": "session_event",
+                "reference": "synthetic:event:archived-plan"
+              }
+            ],
+            "pinned": false,
+            "archived": true,
+            "created_by": {
+              "kind": "session",
+              "session_id": "session-a"
+            },
+            "updated_by": {
+              "kind": "session",
+              "session_id": "session-a"
+            },
+            "item_revision": 2,
+            "commit_sequence": 6,
+            "updated_at": "2026-10-31T09:00:00+00:00",
+            "report_id": "report-archived-plan",
+            "verification": "reported"
+          }
+        ],
+        "notes": [
+          {
+            "note_id": "human-note",
+            "text": "사용자 메모: 외부 배포 전에 만료 정책을 직접 확인한다.\n이 메모는 보고로 덮어쓰지 않는다.",
+            "created_at": "2026-10-31T11:30:00+00:00"
+          }
+        ],
+        "view": {
+          "markdown": "## 내 작업 메모\n\n- [ ] 정책 A/B의 근거 확인\n- 사람이 작성한 **결정**과 문장 구조를 보존한다.\n"
+        }
+      },
+      "last_good": {
+        "schema_version": 1,
+        "task_id": "task-auth",
+        "title": "인증 갱신",
+        "revision": 12,
+        "updated_at": "2026-10-31T11:30:00+00:00",
+        "updated_by": {
+          "kind": "human",
+          "session_id": null
+        },
+        "contributions": [
+          {
+            "session_id": "session-a",
+            "reporting": true,
+            "linked_at": "2026-10-31T07:00:00+00:00",
+            "last_report_at": "2026-10-31T09:00:00+00:00"
+          },
+          {
+            "session_id": "session-b",
+            "reporting": true,
+            "linked_at": "2026-10-31T07:00:00+00:00",
+            "last_report_at": "2026-10-31T09:30:00+00:00"
+          }
+        ],
+        "items": [
+          {
+            "item_id": "situation",
+            "title": "현재 상황",
+            "value": "통합 테스트 진행 중. 인터페이스 변경 이후 검증 결과를 확인하고 있습니다.",
+            "status": "in_progress",
+            "evidence": [
+              {
+                "session_id": "session-b",
+                "kind": "session_event",
+                "reference": "synthetic:event:situation"
+              }
+            ],
+            "pinned": false,
+            "archived": false,
+            "created_by": {
+              "kind": "session",
+              "session_id": "session-a"
+            },
+            "updated_by": {
+              "kind": "session",
+              "session_id": "session-b"
+            },
+            "item_revision": 2,
+            "commit_sequence": 8,
+            "updated_at": "2026-10-31T09:30:00+00:00",
+            "report_id": "report-situation",
+            "verification": "reported"
+          },
+          {
+            "item_id": "pinned-policy",
+            "title": "세션 만료 정책",
+            "value": {
+              "policy": "기존 정책 유지",
+              "reason": "사용자가 고정한 결정"
+            },
+            "status": "decision",
+            "evidence": [
+              {
+                "session_id": "session-a",
+                "kind": "session_event",
+                "reference": "synthetic:event:pinned-policy"
+              }
+            ],
+            "pinned": true,
+            "archived": false,
+            "created_by": {
+              "kind": "session",
+              "session_id": "session-a"
+            },
+            "updated_by": {
+              "kind": "human",
+              "session_id": null
+            },
+            "item_revision": 2,
+            "commit_sequence": 10,
+            "updated_at": "2026-10-31T11:15:00+00:00",
+            "report_id": "report-pinned-policy",
+            "verification": "reported"
+          },
+          {
+            "item_id": "test-result",
+            "title": "검증 결과",
+            "value": "테스트 실행 완료. 오류 1건이 남아 수정과 재실행이 필요합니다.",
+            "status": "completed",
+            "evidence": [
+              {
+                "session_id": "session-b",
+                "kind": "session_event",
+                "reference": "synthetic:event:test-result"
+              }
+            ],
+            "pinned": false,
+            "archived": false,
+            "created_by": {
+              "kind": "session",
+              "session_id": "session-b"
+            },
+            "updated_by": {
+              "kind": "session",
+              "session_id": "session-b"
+            },
+            "item_revision": 2,
+            "commit_sequence": 7,
+            "updated_at": "2026-10-31T09:25:00+00:00",
+            "report_id": "report-test-result",
+            "verification": "reported"
+          },
+          {
+            "item_id": "archived-plan",
+            "title": "이전 계획",
+            "value": "이전 접근은 추적을 중단했지만 기록은 보존합니다.",
+            "status": "superseded",
+            "evidence": [
+              {
+                "session_id": "session-a",
+                "kind": "session_event",
+                "reference": "synthetic:event:archived-plan"
+              }
+            ],
+            "pinned": false,
+            "archived": true,
+            "created_by": {
+              "kind": "session",
+              "session_id": "session-a"
+            },
+            "updated_by": {
+              "kind": "session",
+              "session_id": "session-a"
+            },
+            "item_revision": 2,
+            "commit_sequence": 6,
+            "updated_at": "2026-10-31T09:00:00+00:00",
+            "report_id": "report-archived-plan",
+            "verification": "reported"
+          }
+        ],
+        "notes": [
+          {
+            "note_id": "human-note",
+            "text": "사용자 메모: 외부 배포 전에 만료 정책을 직접 확인한다.\n이 메모는 보고로 덮어쓰지 않는다.",
+            "created_at": "2026-10-31T11:30:00+00:00"
+          }
+        ],
+        "view": {
+          "markdown": "## 내 작업 메모\n\n- [ ] 정책 A/B의 근거 확인\n- 사람이 작성한 **결정**과 문장 구조를 보존한다.\n"
+        }
+      },
+      "content_digest": "0c2ed880200f10789848b388fb3f7374ca4696785bfa355a91ccbff5a00b4895"
+    },
+    {
+      "task_id": "task-observer",
+      "health": "ok",
+      "errors": [],
+      "state": {
+        "schema_version": 1,
+        "task_id": "task-observer",
+        "title": "태스크 자동추적",
+        "revision": 12,
+        "updated_at": "2026-10-31T11:30:00+00:00",
+        "updated_by": {
+          "kind": "human",
+          "session_id": null
+        },
+        "contributions": [
+          {
+            "session_id": "session-a",
+            "reporting": false,
+            "linked_at": "2026-10-31T07:00:00+00:00",
+            "last_report_at": "2026-10-31T08:00:00+00:00"
+          }
+        ],
+        "items": [
+          {
+            "item_id": "situation",
+            "title": "현재 상황",
+            "value": "구현 완료 보고 · 실제 사용 검증 대기",
+            "status": "completed",
+            "evidence": [
+              {
+                "session_id": "session-a",
+                "kind": "session_event",
+                "reference": "synthetic:event:situation"
+              }
+            ],
+            "pinned": false,
+            "archived": false,
+            "created_by": {
+              "kind": "session",
+              "session_id": "session-a"
+            },
+            "updated_by": {
+              "kind": "session",
+              "session_id": "session-a"
+            },
+            "item_revision": 2,
+            "commit_sequence": 3,
+            "updated_at": "2026-10-31T08:00:00+00:00",
+            "report_id": "report-situation",
+            "verification": "reported"
+          },
+          {
+            "item_id": "custom-state",
+            "title": "자유 형식 추적",
+            "value": {
+              "checks": [
+                {
+                  "name": "한글 줄바꿈\nEnglish line",
+                  "passed": false
+                }
+              ],
+              "ratio": 0.5,
+              "optional": null,
+              "labels": [
+                "α",
+                "β"
+              ],
+              "metadata": {
+                "empty": {},
+                "list": []
+              }
+            },
+            "status": "awaiting-personal-trial",
+            "evidence": [
+              {
+                "session_id": "session-a",
+                "kind": "session_event",
+                "reference": "synthetic:event:custom-state"
+              }
+            ],
+            "pinned": false,
+            "archived": false,
+            "created_by": {
+              "kind": "session",
+              "session_id": "session-a"
+            },
+            "updated_by": {
+              "kind": "session",
+              "session_id": "session-a"
+            },
+            "item_revision": 2,
+            "commit_sequence": 3,
+            "updated_at": "2026-10-31T08:00:00+00:00",
+            "report_id": "report-custom-state",
+            "verification": "reported"
+          }
+        ],
+        "notes": [],
+        "view": {
+          "markdown": ""
+        }
+      },
+      "last_good": {
+        "schema_version": 1,
+        "task_id": "task-observer",
+        "title": "태스크 자동추적",
+        "revision": 12,
+        "updated_at": "2026-10-31T11:30:00+00:00",
+        "updated_by": {
+          "kind": "human",
+          "session_id": null
+        },
+        "contributions": [
+          {
+            "session_id": "session-a",
+            "reporting": false,
+            "linked_at": "2026-10-31T07:00:00+00:00",
+            "last_report_at": "2026-10-31T08:00:00+00:00"
+          }
+        ],
+        "items": [
+          {
+            "item_id": "situation",
+            "title": "현재 상황",
+            "value": "구현 완료 보고 · 실제 사용 검증 대기",
+            "status": "completed",
+            "evidence": [
+              {
+                "session_id": "session-a",
+                "kind": "session_event",
+                "reference": "synthetic:event:situation"
+              }
+            ],
+            "pinned": false,
+            "archived": false,
+            "created_by": {
+              "kind": "session",
+              "session_id": "session-a"
+            },
+            "updated_by": {
+              "kind": "session",
+              "session_id": "session-a"
+            },
+            "item_revision": 2,
+            "commit_sequence": 3,
+            "updated_at": "2026-10-31T08:00:00+00:00",
+            "report_id": "report-situation",
+            "verification": "reported"
+          },
+          {
+            "item_id": "custom-state",
+            "title": "자유 형식 추적",
+            "value": {
+              "checks": [
+                {
+                  "name": "한글 줄바꿈\nEnglish line",
+                  "passed": false
+                }
+              ],
+              "ratio": 0.5,
+              "optional": null,
+              "labels": [
+                "α",
+                "β"
+              ],
+              "metadata": {
+                "empty": {},
+                "list": []
+              }
+            },
+            "status": "awaiting-personal-trial",
+            "evidence": [
+              {
+                "session_id": "session-a",
+                "kind": "session_event",
+                "reference": "synthetic:event:custom-state"
+              }
+            ],
+            "pinned": false,
+            "archived": false,
+            "created_by": {
+              "kind": "session",
+              "session_id": "session-a"
+            },
+            "updated_by": {
+              "kind": "session",
+              "session_id": "session-a"
+            },
+            "item_revision": 2,
+            "commit_sequence": 3,
+            "updated_at": "2026-10-31T08:00:00+00:00",
+            "report_id": "report-custom-state",
+            "verification": "reported"
+          }
+        ],
+        "notes": [],
+        "view": {
+          "markdown": ""
+        }
+      },
+      "content_digest": "a6267d3088a716e9e4bf6de189b30afcce9857aca641430bd1360170a0b4a8e0"
+    },
+    {
+      "task_id": "task-bridge",
+      "health": "ok",
+      "errors": [],
+      "state": {
+        "schema_version": 1,
+        "task_id": "task-bridge",
+        "title": "Figma Bridge",
+        "revision": 12,
+        "updated_at": "2026-10-31T11:30:00+00:00",
+        "updated_by": {
+          "kind": "human",
+          "session_id": null
+        },
+        "contributions": [
+          {
+            "session_id": "session-c",
+            "reporting": true,
+            "linked_at": "2026-10-31T07:00:00+00:00",
+            "last_report_at": "2026-10-31T10:45:00+00:00"
+          }
+        ],
+        "items": [
+          {
+            "item_id": "situation",
+            "title": "현재 상황",
+            "value": "선택 노드 전달 경로 개선. 긴 한글·English 내용이 손실되지 않아야 합니다. Preserve exact values, newlines, and punctuation.\n긴 한글·English 내용이 손실되지 않아야 합니다. Preserve exact values, newlines, and punctuation.\n긴 한글·English 내용이 손실되지 않아야 합니다. Preserve exact values, newlines, and punctuation.\n긴 한글·English 내용이 손실되지 않아야 합니다. Preserve exact values, newlines, and punctuation.\n긴 한글·English 내용이 손실되지 않아야 합니다. Preserve exact values, newlines, and punctuation.\n긴 한글·English 내용이 손실되지 않아야 합니다. Preserve exact values, newlines, and punctuation.\n긴 한글·English 내용이 손실되지 않아야 합니다. Preserve exact values, newlines, and punctuation.\n긴 한글·English 내용이 손실되지 않아야 합니다. Preserve exact values, newlines, and punctuation.\n긴 한글·English 내용이 손실되지 않아야 합니다. Preserve exact values, newlines, and punctuation.\n긴 한글·English 내용이 손실되지 않아야 합니다. Preserve exact values, newlines, and punctuation.\n긴 한글·English 내용이 손실되지 않아야 합니다. Preserve exact values, newlines, and punctuation.\n긴 한글·English 내용이 손실되지 않아야 합니다. Preserve exact values, newlines, and punctuation.\n",
+            "status": "in_progress",
+            "evidence": [
+              {
+                "session_id": "session-c",
+                "kind": "session_event",
+                "reference": "synthetic:event:situation"
+              }
+            ],
+            "pinned": false,
+            "archived": false,
+            "created_by": {
+              "kind": "session",
+              "session_id": "session-c"
+            },
+            "updated_by": {
+              "kind": "session",
+              "session_id": "session-c"
+            },
+            "item_revision": 2,
+            "commit_sequence": 3,
+            "updated_at": "2026-10-31T10:45:00+00:00",
+            "report_id": "report-situation",
+            "verification": "reported"
+          }
+        ],
+        "notes": [],
+        "view": {
+          "markdown": ""
+        }
+      },
+      "last_good": {
+        "schema_version": 1,
+        "task_id": "task-bridge",
+        "title": "Figma Bridge",
+        "revision": 12,
+        "updated_at": "2026-10-31T11:30:00+00:00",
+        "updated_by": {
+          "kind": "human",
+          "session_id": null
+        },
+        "contributions": [
+          {
+            "session_id": "session-c",
+            "reporting": true,
+            "linked_at": "2026-10-31T07:00:00+00:00",
+            "last_report_at": "2026-10-31T10:45:00+00:00"
+          }
+        ],
+        "items": [
+          {
+            "item_id": "situation",
+            "title": "현재 상황",
+            "value": "선택 노드 전달 경로 개선. 긴 한글·English 내용이 손실되지 않아야 합니다. Preserve exact values, newlines, and punctuation.\n긴 한글·English 내용이 손실되지 않아야 합니다. Preserve exact values, newlines, and punctuation.\n긴 한글·English 내용이 손실되지 않아야 합니다. Preserve exact values, newlines, and punctuation.\n긴 한글·English 내용이 손실되지 않아야 합니다. Preserve exact values, newlines, and punctuation.\n긴 한글·English 내용이 손실되지 않아야 합니다. Preserve exact values, newlines, and punctuation.\n긴 한글·English 내용이 손실되지 않아야 합니다. Preserve exact values, newlines, and punctuation.\n긴 한글·English 내용이 손실되지 않아야 합니다. Preserve exact values, newlines, and punctuation.\n긴 한글·English 내용이 손실되지 않아야 합니다. Preserve exact values, newlines, and punctuation.\n긴 한글·English 내용이 손실되지 않아야 합니다. Preserve exact values, newlines, and punctuation.\n긴 한글·English 내용이 손실되지 않아야 합니다. Preserve exact values, newlines, and punctuation.\n긴 한글·English 내용이 손실되지 않아야 합니다. Preserve exact values, newlines, and punctuation.\n긴 한글·English 내용이 손실되지 않아야 합니다. Preserve exact values, newlines, and punctuation.\n",
+            "status": "in_progress",
+            "evidence": [
+              {
+                "session_id": "session-c",
+                "kind": "session_event",
+                "reference": "synthetic:event:situation"
+              }
+            ],
+            "pinned": false,
+            "archived": false,
+            "created_by": {
+              "kind": "session",
+              "session_id": "session-c"
+            },
+            "updated_by": {
+              "kind": "session",
+              "session_id": "session-c"
+            },
+            "item_revision": 2,
+            "commit_sequence": 3,
+            "updated_at": "2026-10-31T10:45:00+00:00",
+            "report_id": "report-situation",
+            "verification": "reported"
+          }
+        ],
+        "notes": [],
+        "view": {
+          "markdown": ""
+        }
+      },
+      "content_digest": "d35c47785c442e7711f3342e59d3a7417fa4385b1df49c1da2d50809288f4804"
+    },
+    {
+      "task_id": "task-migration",
+      "health": "ok",
+      "errors": [],
+      "state": {
+        "schema_version": 1,
+        "task_id": "task-migration",
+        "title": "데이터 이관",
+        "revision": 12,
+        "updated_at": "2026-10-31T11:30:00+00:00",
+        "updated_by": {
+          "kind": "human",
+          "session_id": null
+        },
+        "contributions": [
+          {
+            "session_id": "session-d",
+            "reporting": false,
+            "linked_at": "2026-10-31T07:00:00+00:00",
+            "last_report_at": null
+          }
+        ],
+        "items": [
+          {
+            "item_id": "legacy-decision",
+            "title": "이관된 결정",
+            "value": "이관 당시 사람의 결정을 보존한다.",
+            "status": "open",
+            "evidence": [],
+            "pinned": true,
+            "archived": false,
+            "created_by": {
+              "kind": "legacy",
+              "session_id": null
+            },
+            "updated_by": {
+              "kind": "legacy",
+              "session_id": null
+            },
+            "item_revision": 2,
+            "commit_sequence": 1,
+            "updated_at": "2026-10-31T07:00:00+00:00",
+            "report_id": "report-legacy-decision",
+            "verification": "legacy_import"
+          }
+        ],
+        "notes": [],
+        "view": {
+          "markdown": ""
+        },
+        "legacy": {
+          "migration_id": "synthetic-migration",
+          "source_task_id": "source-task-migration",
+          "source_revision": 4,
+          "description": "합성 이관 당시 설명. 현재 관측 설정이 아니다.",
+          "lifecycle": "completed",
+          "created_at": 1793426400000000000,
+          "archive_ref": "migration/archive/task-migration.json",
+          "archive_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "view": {
+            "id": "legacy-view",
+            "task_id": "source-task-migration",
+            "revision": 2,
+            "sections": [
+              {
+                "id": "legacy-section",
+                "title": "이전 메모",
+                "items": [
+                  {
+                    "id": "legacy-note",
+                    "content": "이관 전 사용자 메모",
+                    "pinned": true
+                  }
+                ]
+              }
+            ]
+          },
+          "resources": [
+            {
+              "id": "legacy-resource",
+              "task_id": "source-task-migration",
+              "kind": "pr",
+              "uri": "https://github.com/example/synthetic-observer/pull/8",
+              "external_status": "unknown",
+              "verified_at": null,
+              "created_at": 1793427300000000000
+            }
+          ],
+          "review_cursors": [
+            {
+              "task_id": "source-task-migration",
+              "session_id": "session-d",
+              "last_observation_id": 7,
+              "revision": 2
+            }
+          ],
+          "archived_contributions": [
+            {
+              "id": "legacy-link",
+              "task_id": "source-task-migration",
+              "session_id": "session-old",
+              "role": "contributor",
+              "scope": "synthetic",
+              "linked_by": "human",
+              "confidence": null,
+              "linked_at": 1793426400000000000
+            }
+          ]
+        }
+      },
+      "last_good": {
+        "schema_version": 1,
+        "task_id": "task-migration",
+        "title": "데이터 이관",
+        "revision": 12,
+        "updated_at": "2026-10-31T11:30:00+00:00",
+        "updated_by": {
+          "kind": "human",
+          "session_id": null
+        },
+        "contributions": [
+          {
+            "session_id": "session-d",
+            "reporting": false,
+            "linked_at": "2026-10-31T07:00:00+00:00",
+            "last_report_at": null
+          }
+        ],
+        "items": [
+          {
+            "item_id": "legacy-decision",
+            "title": "이관된 결정",
+            "value": "이관 당시 사람의 결정을 보존한다.",
+            "status": "open",
+            "evidence": [],
+            "pinned": true,
+            "archived": false,
+            "created_by": {
+              "kind": "legacy",
+              "session_id": null
+            },
+            "updated_by": {
+              "kind": "legacy",
+              "session_id": null
+            },
+            "item_revision": 2,
+            "commit_sequence": 1,
+            "updated_at": "2026-10-31T07:00:00+00:00",
+            "report_id": "report-legacy-decision",
+            "verification": "legacy_import"
+          }
+        ],
+        "notes": [],
+        "view": {
+          "markdown": ""
+        },
+        "legacy": {
+          "migration_id": "synthetic-migration",
+          "source_task_id": "source-task-migration",
+          "source_revision": 4,
+          "description": "합성 이관 당시 설명. 현재 관측 설정이 아니다.",
+          "lifecycle": "completed",
+          "created_at": 1793426400000000000,
+          "archive_ref": "migration/archive/task-migration.json",
+          "archive_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "view": {
+            "id": "legacy-view",
+            "task_id": "source-task-migration",
+            "revision": 2,
+            "sections": [
+              {
+                "id": "legacy-section",
+                "title": "이전 메모",
+                "items": [
+                  {
+                    "id": "legacy-note",
+                    "content": "이관 전 사용자 메모",
+                    "pinned": true
+                  }
+                ]
+              }
+            ]
+          },
+          "resources": [
+            {
+              "id": "legacy-resource",
+              "task_id": "source-task-migration",
+              "kind": "pr",
+              "uri": "https://github.com/example/synthetic-observer/pull/8",
+              "external_status": "unknown",
+              "verified_at": null,
+              "created_at": 1793427300000000000
+            }
+          ],
+          "review_cursors": [
+            {
+              "task_id": "source-task-migration",
+              "session_id": "session-d",
+              "last_observation_id": 7,
+              "revision": 2
+            }
+          ],
+          "archived_contributions": [
+            {
+              "id": "legacy-link",
+              "task_id": "source-task-migration",
+              "session_id": "session-old",
+              "role": "contributor",
+              "scope": "synthetic",
+              "linked_by": "human",
+              "confidence": null,
+              "linked_at": 1793426400000000000
+            }
+          ]
+        }
+      },
+      "content_digest": "06a47a3600a2ff3faa303e5d564128542e161570cb3e3da85aba12ea805aca86"
+    },
+    {
+      "task_id": "task-empty",
+      "health": "ok",
+      "errors": [],
+      "state": {
+        "schema_version": 1,
+        "task_id": "task-empty",
+        "title": "인증 갱신",
+        "revision": 1,
+        "updated_at": "2026-10-31T11:30:00+00:00",
+        "updated_by": {
+          "kind": "human",
+          "session_id": null
+        },
+        "contributions": [],
+        "items": [],
+        "notes": [],
+        "view": {
+          "markdown": ""
+        }
+      },
+      "last_good": {
+        "schema_version": 1,
+        "task_id": "task-empty",
+        "title": "인증 갱신",
+        "revision": 1,
+        "updated_at": "2026-10-31T11:30:00+00:00",
+        "updated_by": {
+          "kind": "human",
+          "session_id": null
+        },
+        "contributions": [],
+        "items": [],
+        "notes": [],
+        "view": {
+          "markdown": ""
+        }
+      },
+      "content_digest": "80225e3b71d7806f5beb5e7859a99ff931dfa32a4eaf4fbc8bcbefcaab34e1cb"
+    },
+    {
+      "task_id": "task-external",
+      "health": "external_edit",
+      "errors": [
+        {
+          "code": "external_edit",
+          "message": "File differs from committed history; it has not been adopted as current",
+          "details": {}
+        }
+      ],
+      "state": {
+        "schema_version": 1,
+        "task_id": "task-external",
+        "title": "채택되지 않은 외부 편집 제목",
+        "revision": 12,
+        "updated_at": "2026-10-31T08:30:00+00:00",
+        "updated_by": {
+          "kind": "session",
+          "session_id": "session-e"
+        },
+        "contributions": [
+          {
+            "session_id": "session-e",
+            "reporting": true,
+            "linked_at": "2026-10-31T07:00:00+00:00",
+            "last_report_at": "2026-10-31T08:30:00+00:00"
+          }
+        ],
+        "items": [
+          {
+            "item_id": "situation",
+            "title": "현재 상황",
+            "value": "이 유효한 JSON 편집값을 현재 정상 기록으로 표시하면 안 됩니다.",
+            "status": "in_progress",
+            "evidence": [
+              {
+                "session_id": "session-e",
+                "kind": "session_event",
+                "reference": "synthetic:event:situation"
+              }
+            ],
+            "pinned": true,
+            "archived": false,
+            "created_by": {
+              "kind": "session",
+              "session_id": "session-e"
+            },
+            "updated_by": {
+              "kind": "session",
+              "session_id": "session-e"
+            },
+            "item_revision": 2,
+            "commit_sequence": 3,
+            "updated_at": "2026-10-31T08:30:00+00:00",
+            "report_id": "report-situation",
+            "verification": "reported"
+          }
+        ],
+        "notes": [],
+        "view": {
+          "markdown": ""
+        }
+      },
+      "last_good": {
+        "schema_version": 1,
+        "task_id": "task-external",
+        "title": "마지막 정상 기록이 있는 태스크",
+        "revision": 12,
+        "updated_at": "2026-10-31T08:30:00+00:00",
+        "updated_by": {
+          "kind": "session",
+          "session_id": "session-e"
+        },
+        "contributions": [
+          {
+            "session_id": "session-e",
+            "reporting": true,
+            "linked_at": "2026-10-31T07:00:00+00:00",
+            "last_report_at": "2026-10-31T08:30:00+00:00"
+          }
+        ],
+        "items": [
+          {
+            "item_id": "situation",
+            "title": "현재 상황",
+            "value": "이 값은 커밋된 마지막 정상 기록입니다.",
+            "status": "in_progress",
+            "evidence": [
+              {
+                "session_id": "session-e",
+                "kind": "session_event",
+                "reference": "synthetic:event:situation"
+              }
+            ],
+            "pinned": false,
+            "archived": false,
+            "created_by": {
+              "kind": "session",
+              "session_id": "session-e"
+            },
+            "updated_by": {
+              "kind": "session",
+              "session_id": "session-e"
+            },
+            "item_revision": 2,
+            "commit_sequence": 3,
+            "updated_at": "2026-10-31T08:30:00+00:00",
+            "report_id": "report-situation",
+            "verification": "reported"
+          }
+        ],
+        "notes": [],
+        "view": {
+          "markdown": ""
+        }
+      },
+      "content_digest": "2edd94148d22759ca6e74c3e81d4f04f08a78f53b18381c027c6f5a7bbafd41a"
+    },
+    {
+      "task_id": "task-invalid",
+      "health": "invalid",
+      "errors": [
+        {
+          "code": "invalid_json",
+          "message": "File is not valid unambiguous JSON",
+          "details": {}
+        }
+      ],
+      "state": null,
+      "last_good": null,
+      "content_digest": "c961351ab2a1172fc415725e0512a2a805e4210244c2635aeb53ea709617f2b3"
+    }
+  ],
+  "observations": {
+    "origin": "deterministic_collector",
+    "collector": {
+      "last_success": 1793447700000000000,
+      "last_attempt": 1793447940000000000,
+      "last_error": "synthetic_source_unavailable"
+    },
+    "sessions": [
+      {
+        "id": "session-a",
+        "title": "Synthetic session A",
+        "workspace": "/synthetic/auth",
+        "status": "current",
+        "last_seen": 1793447700000000000,
+        "identity_verified": false,
+        "observation_count": 18,
+        "resource_mentions": [
+          {
+            "kind": "pr",
+            "value": "https://github.com/example/synthetic-observer/pull/142",
+            "verification": "mentioned",
+            "source_ref": "mentions-v2",
+            "node_id": 101,
+            "source_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "pr",
+            "value": "https://github.com/example/synthetic-observer/pull/142",
+            "verification": "mentioned",
+            "source_ref": "mentions-v2",
+            "node_id": 101,
+            "source_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "pr",
+            "value": "https://github.com/example/synthetic-observer/pull/142",
+            "verification": "mentioned",
+            "source_ref": "mentions-v2",
+            "node_id": 102,
+            "source_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          {
+            "kind": "branch",
+            "value": "main",
+            "verification": "mentioned",
+            "source_ref": "mentions-v2",
+            "node_id": 103,
+            "source_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          }
+        ],
+        "resources_truncated": false,
+        "plan_snapshots": [
+          {
+            "node_id": 104,
+            "message_id": "synthetic-message-a",
+            "call_id": "synthetic-plan-call",
+            "source_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "items": [
+              {
+                "content": "인터페이스 점검",
+                "source_status": "completed"
+              },
+              {
+                "content": "수정 후 재검증",
+                "source_status": "pending"
+              }
+            ],
+            "verification": "agent_reported",
+            "ordering": "not_inferred"
+          }
+        ],
+        "plans_truncated": false
+      },
+      {
+        "id": "session-b",
+        "title": "Synthetic session B",
+        "workspace": "/synthetic/auth",
+        "status": "current",
+        "last_seen": 1793447700000000000,
+        "identity_verified": false,
+        "observation_count": 18,
+        "resource_mentions": [
+          {
+            "kind": "pr",
+            "value": "https://github.com/example/synthetic-observer/pull/142",
+            "verification": "mentioned",
+            "source_ref": "mentions-v2",
+            "node_id": 201,
+            "source_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          }
+        ],
+        "resources_truncated": false,
+        "plan_snapshots": [
+          {
+            "node_id": 202,
+            "message_id": "synthetic-message-b",
+            "call_id": "synthetic-plan-call-b",
+            "source_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "items": [
+              {
+                "content": "같은 이름의 계획도 세션별 유지",
+                "source_status": "pending"
+              }
+            ],
+            "verification": "agent_reported",
+            "ordering": "not_inferred"
+          }
+        ],
+        "plans_truncated": false
+      },
+      {
+        "id": "session-c",
+        "title": "Synthetic session C",
+        "workspace": "/synthetic/bridge",
+        "status": "current",
+        "last_seen": 1793447700000000000,
+        "identity_verified": false,
+        "observation_count": 18,
+        "resource_mentions": [
+          {
+            "kind": "branch",
+            "value": "main",
+            "verification": "mentioned",
+            "source_ref": "mentions-v2",
+            "node_id": 301,
+            "source_hash": "1111111111111111111111111111111111111111111111111111111111111111"
+          }
+        ],
+        "resources_truncated": false,
+        "plan_snapshots": [],
+        "plans_truncated": false
+      },
+      {
+        "id": "session-e",
+        "title": "Synthetic session E",
+        "workspace": "/synthetic/external",
+        "status": "stale",
+        "last_seen": 1793447700000000000,
+        "identity_verified": false,
+        "observation_count": 18,
+        "resource_mentions": [],
+        "resources_truncated": false,
+        "plan_snapshots": [],
+        "plans_truncated": false
+      },
+      {
+        "id": "session-unlinked",
+        "title": "관측됐지만 연결되지 않은 합성 세션",
+        "workspace": "/synthetic/unlinked",
+        "status": "current",
+        "last_seen": 1793447700000000000,
+        "identity_verified": false,
+        "observation_count": 18,
+        "resource_mentions": [],
+        "resources_truncated": false,
+        "plan_snapshots": [],
+        "plans_truncated": false
+      }
+    ],
+    "unobserved_session_ids": [
+      "session-d"
+    ],
+    "warnings": [],
+    "identity_verified": false
+  },
+  "session_activity": {
+    "session-a": {
+      "health": "ok",
+      "identity_source": "devin_hook",
+      "session_id": "session-a",
+      "workspace": "/synthetic/auth",
+      "last_seen": "2026-10-31T11:58:00+00:00",
+      "last_event": "Stop",
+      "last_context_at": "2026-10-31T07:00:00+00:00",
+      "needs_context": false
+    },
+    "session-b": {
+      "health": "ok",
+      "identity_source": "devin_hook",
+      "session_id": "session-b",
+      "workspace": "/synthetic/auth",
+      "last_seen": "2026-10-31T11:58:00+00:00",
+      "last_event": "Stop",
+      "last_context_at": "2026-10-31T07:00:00+00:00",
+      "needs_context": false
+    },
+    "session-c": {
+      "health": "ok",
+      "identity_source": "devin_hook",
+      "session_id": "session-c",
+      "workspace": "/synthetic/bridge",
+      "last_seen": "2026-10-31T11:58:00+00:00",
+      "last_event": "Stop",
+      "last_context_at": "2026-10-31T07:00:00+00:00",
+      "needs_context": false
+    },
+    "session-d": {
+      "health": "not_seen",
+      "session_id": "session-d"
+    },
+    "session-e": {
+      "health": "attention",
+      "session_id": "session-e",
+      "error": "session_activity_unavailable"
+    }
+  },
+  "runtime": {
+    "running": true,
+    "refresh": {
+      "ok": false,
+      "stage": "refresh_failed",
+      "reason": "synthetic_source_unavailable"
+    },
+    "next_retry_seconds": 10,
+    "collector": {
+      "last_success": 1793447700000000000,
+      "last_attempt": 1793447940000000000,
+      "last_error": "synthetic_source_unavailable"
+    }
+  },
+  "state_errors": []
+}

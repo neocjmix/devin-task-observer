@@ -1,58 +1,33 @@
-# Devin Task Observer — Implementation Plan
+# 구현 범위와 다음 작업 절차
 
-Status: planning, 2026-10-27. Devin Desktop internals require verification on a personal installation.
+| 항목 | 내용 |
+|---|---|
+| 문서 유형 | 개발 절차 |
+| 상태 | 현재 기준선 이후 적용 |
+| 기준 | [main 정본 기준선](BASELINE.md) |
+| 적용 범위 | 새 슬라이스의 선택·구현·검증·인계 |
 
-## Objective and constraints
+## 현재 범위
 
-Track 10+ Devin Desktop sessions without repeatedly asking agents for ticket, PR, plan, decisions, findings and next actions. Support development, investigation, design and mixed tasks.
+M3 협조형 보고와 UI V2는 [기준선](BASELINE.md)의 범위까지 구현됐다. 지원 기능·한계는 기준선의 현재 상태를 따른다.
 
-- Work directly in Devin Desktop, CLI or IDE, never via mandatory wrapper.
-- Manager reads existing sessions only. Optional launch command is permitted; no session prompts/control.
-- Many sessions per task, and multiple tasks per session.
-- No required agent skill, MCP writer or hook. Hooks can trigger observation.
-- Deterministic collection and state store. Optional budgeted LLM for meaning extraction.
-- Persist stable per-task views, manual edits, evidence and freshness.
-- Personal development uses public documentation and synthetic/personal data only.
+기본 관측은 LLM 없이, 의미 보고는 작업 세션의 스킬·CLI로 수행한다. 태스크–세션 다대다, 파일 원본, 낙관적 커밋, 명시적 핀·메모·이력 보존, 상태 막대 UI, Python/JS 중심 스택을 유지한다. 상세 계약은 [데이터](DATA_AND_RECONCILIATION.md)와 [트랜잭션](STATE_TRANSACTION_CONTRACT.md)을 따른다.
 
-## Architecture
+## 다음 작업 선택
 
-Devin local data -> read-only adapter -> incremental diff -> SQLite observations -> deterministic projection -> persistent task view -> local dashboard. Optional semantic reconciler proposes evidence-linked patches. Never attach as a competing ACP writer. Observer failure must not affect Devin.
+구체적인 남은 작업과 GitHub 이슈는 [백로그](BACKLOG.md)에만 관리한다. **B01: 상태 경로 이전 후 실제 세션 보고 연속성**은 검증 완료다. B02 개인 실사용 관측은 사용자가 맡기로 한 범위이며 에이전트는 결과 정리와 분석을 담당한다.
 
-## Data model
+우선순위 표는 실행 순서 제안이지 모든 작업의 즉시 착수 승인이 아니다. 기존 세션 제어, 회사 자료 사용, 모델 분석 확대를 다시 기본 경로에 넣지 않는다.
 
-Task; Session; Contribution (many-to-many); Resource (ticket, PR, repo, worktree, test); Observation (normalized event, source ref, hash); Checkpoint (source fingerprint, processed keys); TaskView (stable section IDs); ViewItem (stable ID, content, evidence, provenance, pinned); ReconcileProposal (revisioned patch); Claim (verification and conflicts).
+## 슬라이스 진행 규칙
 
-## Stable View Contract
+1. [검증·인수인계](VALIDATION_AND_HANDOFF.md)대로 브랜치·변경사항·해당 이슈를 확인한다.
+2. 해당 이슈에서 다음 변경 ID를 정한다. 다음 미사용 번호는 `M3-S06`이며 아직 예약하지 않았다. 기존 ID를 재사용하지 않는다.
+3. 시작 커밋·포함/제외 범위·완료 조건·예상 승인 필요 사항을 기록한다. 실제 인증·권한 등 필요한 때만 사용자에게 요청한다.
+4. 기존 코어를 사용해 최소 구현을 완료하고 적합한 단위·통합·실제 실행 검증을 수행한다. 실패 원인을 수정하고 재검증한다.
+5. 실제/합성/Mock/미검증을 구분해 이슈에 결과를 기록한다. 현재 문서와 백로그를 함께 갱신한다.
+6. main에서 분기한 작업 브랜치와 새 PR에 해당 ID의 커밋을 반영한다. 별도 요청 없이 병합·재배포·자동 실행 등록을 하지 않는다.
 
-Sections are arbitrary per task; templates are optional. Preserve IDs, order, human edits and pinned content. No automatic deletion, merging or whole-view regeneration. Add uncategorized findings to Inbox; structural changes require approval. Contradictions coexist with provenance.
+## 완료 판정
 
-## Incremental collection
-
-Probe Devin Desktop actual local storage, IDs, rewrites and hook payloads. Normalize user/assistant/tool/plan events. Compare with committed checkpoint using stable IDs when verified, otherwise anchored hashes. Handle append, edit, rewrite, truncate, reorder, compaction, duplicate and malformed input. Commit events and checkpoint atomically; mark ambiguity stale rather than skipping. Manual refresh and polling must work without hooks. Zero LLM tokens for collection.
-
-## Semantic reconciliation
-
-Default OFF. Analyze only new relevant events plus affected view items. Produce bounded patch proposals; validate revisions, evidence and non-destructive rules before applying. Never analyze unchanged deltas. Enforce daily token budget, cache, usage ledger and approved model policy.
-
-## Security
-
-Localhost-only; no telemetry or default egress; read-only Devin access; minimal retention; no transcript upload or credentials; redact diagnostics. Keep company data and personal GitHub strictly separate. Import through company-approved path.
-
-## Delivery
-
-| Phase | Goal | Gate |
-|---|---|---|
-| P0 | Probe real Devin Desktop local storage/hooks | Reliable read-only discovery and change detection |
-| P1 | Adapter, diff, checkpoint, fixture tests | Rewrite/restart/crash tests pass |
-| P2 | Task registry and many-to-many links | Multiple sessions/tasks work |
-| P3 | Stable views, dashboard, manual edits | Zero-token lookup and preserved views |
-| P4 | Optional semantic patching | Evidence-linked, non-destructive, budgeted |
-| P5 | Dogfood, hardening, internal import | Security and usefulness verified |
-
-## Acceptance
-
-Devin unaffected by observer crashes; no writes/prompts to sessions; idempotent replay; stale indicators; no lost user edits; conflicting findings retained; no model required for basic operation. Measure session revisits/day, time to find ticket/PR, incorrect claims, and token cost.
-
-## First task
-
-Implement a read-only personal Devin Desktop probe reporting session discovery, source schema, write behavior and stable identifiers without storing message bodies. Document sanitized findings before building the dashboard.
+테스트 수만으로 전체 제품 완성을 선언하지 않는다. 사용자가 태스크를 연결하고 세션 보고를 켠 뒤 출처·시각·오류를 보면서 현재 작업을 이해할 수 있어야 한다. 매 턴 보고나 완전한 의미 정확성은 새 게이트로 추가하지 않는다. 지원하지 않는 기능·환경을 “추후 반드시 구현”으로 바꾸지 않는다.

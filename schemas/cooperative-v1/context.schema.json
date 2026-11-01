@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Observer cooperative context v1",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "session_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[^\\s/\\\\]+$"
+    },
+    "identity_source": {
+      "enum": [
+        "explicit_registration",
+        "devin_hook"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "session_id",
+    "identity_source"
+  ],
+  "additionalProperties": false
+}

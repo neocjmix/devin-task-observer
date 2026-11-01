@@ -1,0 +1,573 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Observer cooperative task v1",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "updated_at": {
+      "type": "string",
+      "maxLength": 16000
+    },
+    "updated_by": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "human",
+            "session",
+            "legacy"
+          ]
+        },
+        "session_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[^\\s/\\\\]+$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "session_id"
+      ],
+      "additionalProperties": false
+    },
+    "contributions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^[^\\s/\\\\]+$"
+          },
+          "reporting": {
+            "type": "boolean"
+          },
+          "linked_at": {
+            "type": "string",
+            "maxLength": 16000
+          },
+          "last_report_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 16000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "session_id",
+          "reporting",
+          "linked_at",
+          "last_report_at"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 100
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "value": {},
+          "status": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "session_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "pattern": "^[^\\s/\\\\]+$"
+                },
+                "reference": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                },
+                "kind": {
+                  "enum": [
+                    "session_event",
+                    "local_artifact",
+                    "report"
+                  ]
+                }
+              },
+              "required": [
+                "session_id",
+                "reference",
+                "kind"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 100
+          },
+          "pinned": {
+            "type": "boolean"
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "created_by": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "human",
+                  "session",
+                  "legacy"
+                ]
+              },
+              "session_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "pattern": "^[^\\s/\\\\]+$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "session_id"
+            ],
+            "additionalProperties": false
+          },
+          "updated_by": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "human",
+                  "session",
+                  "legacy"
+                ]
+              },
+              "session_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "pattern": "^[^\\s/\\\\]+$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "session_id"
+            ],
+            "additionalProperties": false
+          },
+          "item_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "commit_sequence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "updated_at": {
+            "type": "string",
+            "maxLength": 16000
+          },
+          "report_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$"
+          },
+          "verification": {
+            "enum": [
+              "reported",
+              "legacy_import"
+            ]
+          },
+          "role": {
+            "enum": [
+              "general",
+              "situation",
+              "intervention",
+              "next_action",
+              "resume",
+              "blocker",
+              "decision",
+              "verification"
+            ]
+          },
+          "attention_required": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "item_id",
+          "title",
+          "value",
+          "status",
+          "evidence",
+          "pinned",
+          "archived",
+          "created_by",
+          "updated_by",
+          "item_revision",
+          "commit_sequence",
+          "updated_at",
+          "report_id",
+          "verification"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 1000
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "note_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 16000
+          },
+          "created_at": {
+            "type": "string",
+            "maxLength": 16000
+          }
+        },
+        "required": [
+          "note_id",
+          "text",
+          "created_at"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 1000
+    },
+    "view": {
+      "type": "object",
+      "properties": {
+        "markdown": {
+          "type": "string",
+          "maxLength": 16000
+        }
+      },
+      "required": [
+        "markdown"
+      ],
+      "additionalProperties": false
+    },
+    "legacy": {
+      "type": "object",
+      "properties": {
+        "migration_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$"
+        },
+        "source_task_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$"
+        },
+        "source_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 16000
+        },
+        "lifecycle": {
+          "type": "string",
+          "maxLength": 16000
+        },
+        "created_at": {
+          "type": "integer"
+        },
+        "archive_ref": {
+          "type": "string",
+          "maxLength": 16000
+        },
+        "archive_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "view": {
+          "anyOf": [
+            {
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "review_cursors": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "maxItems": 1000
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "maxItems": 1000
+        },
+        "archived_contributions": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "maxItems": 1000
+        }
+      },
+      "required": [
+        "migration_id",
+        "source_task_id",
+        "source_revision",
+        "description",
+        "lifecycle",
+        "created_at",
+        "archive_ref",
+        "archive_sha256",
+        "view",
+        "review_cursors",
+        "resources",
+        "archived_contributions"
+      ],
+      "additionalProperties": false
+    },
+    "resources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "resource_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$"
+          },
+          "kind": {
+            "enum": [
+              "issue",
+              "document",
+              "environment",
+              "repository",
+              "branch",
+              "pr",
+              "communication",
+              "deliverable",
+              "other"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "target": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "open_mode": {
+            "enum": [
+              "url",
+              "file",
+              "copy"
+            ]
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "session_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "pattern": "^[^\\s/\\\\]+$"
+                },
+                "reference": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                },
+                "kind": {
+                  "enum": [
+                    "session_event",
+                    "local_artifact",
+                    "report"
+                  ]
+                }
+              },
+              "required": [
+                "session_id",
+                "reference",
+                "kind"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 100
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "created_by": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "human"
+              },
+              "session_id": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "kind",
+              "session_id"
+            ],
+            "additionalProperties": false
+          },
+          "updated_by": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "human"
+              },
+              "session_id": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "kind",
+              "session_id"
+            ],
+            "additionalProperties": false
+          },
+          "created_at": {
+            "type": "string",
+            "maxLength": 16000
+          },
+          "updated_at": {
+            "type": "string",
+            "maxLength": 16000
+          },
+          "external_status": {
+            "const": "unknown"
+          }
+        },
+        "required": [
+          "resource_id",
+          "kind",
+          "label",
+          "target",
+          "open_mode",
+          "evidence",
+          "archived",
+          "created_by",
+          "updated_by",
+          "created_at",
+          "updated_at",
+          "external_status"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 1000
+    },
+    "management": {
+      "type": "object",
+      "properties": {
+        "lifecycle": {
+          "enum": [
+            "active",
+            "completed"
+          ]
+        },
+        "observation_enabled": {
+          "type": "boolean"
+        },
+        "previous_observation_enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "lifecycle",
+        "observation_enabled",
+        "previous_observation_enabled"
+      ],
+      "additionalProperties": false
+    },
+    "last_report_revision": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "required": [
+    "schema_version",
+    "task_id",
+    "title",
+    "revision",
+    "updated_at",
+    "updated_by",
+    "contributions",
+    "items",
+    "notes",
+    "view"
+  ],
+  "additionalProperties": false
+}
